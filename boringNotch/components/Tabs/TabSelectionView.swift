@@ -1,3 +1,4 @@
+// Modified 2026-10-10: Agents integration in the junque1r4 GPL-3.0 fork.
 //
 //  TabSelectionView.swift
 //  boringNotch
@@ -23,9 +24,13 @@ let tabs = [
 
 struct TabSelectionView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
+    @Default(.boringShelf) private var shelfEnabled
     @Namespace var animation
     private var visibleTabs: [TabModel] {
-        Defaults[.boringShelf] ? tabs : [tabs[0], tabs[2]]
+        Self.availableTabs(shelfEnabled: shelfEnabled)
+    }
+    static func availableTabs(shelfEnabled: Bool) -> [TabModel] {
+        shelfEnabled ? tabs : [tabs[0], tabs[2]]
     }
     var body: some View {
         HStack(spacing: 0) {

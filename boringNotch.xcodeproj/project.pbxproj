@@ -1,4 +1,5 @@
 // !$*UTF8*$!
+// Modified 2026-10-10: native Agents sources, fork identity and hosted tests.
 {
 	archiveVersion = 1;
 	classes = {

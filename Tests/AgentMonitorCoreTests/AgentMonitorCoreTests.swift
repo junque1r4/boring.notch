@@ -105,4 +105,34 @@ final class AgentMonitorCoreTests: XCTestCase {
         let removed = await provider.snapshot(at: Date())
         XCTAssertTrue(removed.sessions.isEmpty)
     }
+
+    func testLongTurnKeepsWorkingAndCompletesAnAppendedPartialRecord() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("long.jsonl")
+        var content = line("session_meta", ["id": id, "cwd": "/p", "source": "cli"], date: Date())
+        content.append(10)
+        content.append(line("event_msg", ["type": "task_started", "turn_id": "1"], date: Date()))
+        content.append(10)
+        // The turn-start is outside the bounded tail before the first scan.
+        for _ in 0..<5000 {
+            content.append(line("response_item", ["type": "message", "text": String(repeating: "private ", count: 20)]))
+            content.append(10)
+        }
+        try content.write(to: url)
+        let provider = CodexLogProvider(root: root)
+        let first = await provider.snapshot(at: Date())
+        XCTAssertEqual(first.sessions.first?.state, .working)
+        let completion = line("event_msg", ["type": "task_complete", "turn_id": "1"], date: Date().addingTimeInterval(1))
+        content.append(completion.prefix(completion.count / 2))
+        try content.write(to: url)
+        let partial = await provider.snapshot(at: Date())
+        XCTAssertEqual(partial.sessions.first?.state, .working)
+        content.append(completion.suffix(completion.count - completion.count / 2))
+        content.append(10)
+        try content.write(to: url)
+        let completed = await provider.snapshot(at: Date().addingTimeInterval(2))
+        XCTAssertEqual(completed.sessions.first?.state, .completed)
+    }
 }

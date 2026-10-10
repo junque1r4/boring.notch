@@ -24,7 +24,11 @@ under your actual `CODEX_HOME` if customized.
 
 The adapter observes Desktop and CLI logs from the last 24 hours, up to 80
 recent files. It reads a bounded header and tail, caches unchanged files,
-rejects symlinks escaping the grant, tolerates partial writes, and keeps only
+then reads appended records so a long turn keeps its observed state. A partial
+JSON record may be buffered briefly in memory, up to 1 MiB, until its next write.
+The append budget is 1 MiB per poll; exceeding it resets the old state to Unknown
+and rechecks the bounded tail instead of carrying a status across an unread gap.
+It rejects symlinks escaping the grant, tolerates partial writes, and keeps only
 session ID, project directory name, origin, lifecycle state, turn ID and time.
 JSON records may briefly contain other fields while decoding, but those fields
 are never retained in the model, logged, persisted or transmitted by monitoring.
@@ -99,7 +103,8 @@ and Waiting observations may include activity in that parent's subagents.
 
 ## Navigation and approvals
 
-Desktop sessions use `codex://threads/<UUID>` when a registered handler exists.
+Desktop sessions use `codex://threads/<UUID>` only when the registered handler
+has the verified Codex bundle ID `com.openai.codex`.
 The installed app's scheme registration has been verified; individual thread
 routing remains version dependent. The UI reports that limit. Missing handlers
 fall back to copying the CLI resume command.
@@ -134,8 +139,7 @@ swift test
 python3 integrations/codex/test_notch_hook.py
 xcodebuild -project boringNotch.xcodeproj -scheme boringNotch -configuration Debug \
   -destination 'platform=macOS' CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= test
-xcodebuild -project boringNotch.xcodeproj -scheme boringNotch -configuration Release \
-  CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= build
+sh scripts/build-agents-local.sh
 ```
 
 The fork has its own app/helper bundle IDs and product name so it can coexist
@@ -150,3 +154,10 @@ modified files, build instructions, dependency lockfile, resources, license and
 notices, under GPL-3.0; preserve third-party licenses. Do not imply upstream
 endorsement. Ad-hoc builds are local development artifacts, not notarized public
 releases. A future public release needs an independent signing/update pipeline.
+
+The local build script retains App Sandbox but disables Hardened Runtime for
+the ad-hoc build: without a Developer ID team identity, library validation rejects
+the inherited MediaRemoteAdapter framework at launch. No system protection is
+changed. Public distribution must use proper signing of the app and embedded
+frameworks, Hardened Runtime and notarization. The inherited framework also
+reports a newer macOS build target, so macOS 14–26 compatibility is unverified.

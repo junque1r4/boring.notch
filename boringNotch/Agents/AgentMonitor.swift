@@ -153,7 +153,8 @@ final class AgentMonitor {
     func navigate(_ session: AgentSession) {
         guard session.isNavigable else { navigationMessage = "This session has no supported navigation ID."; return }
         if session.surface == .desktop, let url = session.desktopURL,
-           NSWorkspace.shared.urlForApplication(toOpen: url) != nil, NSWorkspace.shared.open(url) {
+           let handler = NSWorkspace.shared.urlForApplication(toOpen: url),
+           Bundle(url: handler)?.bundleIdentifier == "com.openai.codex", NSWorkspace.shared.open(url) {
             navigationMessage = "Opened Codex. Thread routing depends on the installed app version."
         } else if let command = session.resumeCommand {
             NSPasteboard.general.clearContents()
