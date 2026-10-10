@@ -1,6 +1,6 @@
 # Modifications to Boring Notch
 
-Date: 10 October 2026. Fork: junque1r4/boring.notch. License: GPL-3.0-only.
+Date: 11 October 2026. Fork: junque1r4/boring.notch. License: GPL-3.0-only.
 Base: TheBoredTeam/boring.notch v2.8-rc.2.
 
 This is a modified version, not an official TheBoredTeam release.
@@ -28,6 +28,15 @@ This is a modified version, not an official TheBoredTeam release.
   popup presentation to the notch's existing popover hold so its lower controls
   remain accessible. The only shared-view refinement is that Agents hold binding;
   no Home/Shelf/media behavior was changed.
+
+- Added stable parent gesture enablement and Agents scroll forwarding with momentum
+  reset across tab changes, preserving other tabs' gesture identity.
+- Added a native Agents-only Dot chat panel, encrypted bounded local persistence,
+  Keychain OAuth credentials and a separately scoped private Cloudflare relay.
+  This opt-in chat sends explicit messages; monitoring still stays local.
+- Added GitHub-owner PKCE authentication, private MCP tools/events and GPL relay
+  source with maintained OAuth dependency source and MIT notices. Real Dot delivery
+  remains an acceptance gate, not a claim based on protocol fixtures.
 
 Original license, copyright notices, credits and third-party notices remain.
 See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.

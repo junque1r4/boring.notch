@@ -62,3 +62,24 @@ Standalone checks: `swift test` and `python3 integrations/codex/test_notch_hook.
 The 129 passing tests consist of 110 hosted app, 15 core and four hook tests.
 
 See [AGENTS.md](AGENTS.md) for setup, exact state meanings and architecture.
+
+## Dot and Agents scrolling validation (11 October 2026)
+
+The current hosted app suite passed all 134 tests with zero failures. This includes
+13 Dot persistence/OAuth/protocol tests, eight scroll-state tests and three panel
+geometry tests. The universal local Release build succeeded and its native Dot
+button and chat panel were exercised on this Mac. The relay passed 27 Workers
+runtime tests, type checks and production builds. Browser testing found and fixed
+a consent CSP that blocked the intended GitHub redirect; browser consent remains
+bound to the initiating browser and exact owner.
+
+The personal relay is deployed and reports configured:true. Live OAuth discovery
+and a bounded protocol consent-to-GitHub redirect check succeeded. These are not
+a real Dot exchange. Native owner sign-in and the private ChatGPT plugin
+authentication completed successfully in Safari; the notch shows Relay connected.
+The plugin exposes both tools and notch.message.created. A real Dot subscription
+and notch reply remain under validation. A native UI scroll check moved the Agents
+scrollbar from 0 to 0.2427 and back to 0 without closing the notch.
+Physical trackpad/momentum, external displays and screen
+lock remain direct-Mac acceptance checks. Explicit callback DNS/IP connection
+pinning remains an acknowledged relay platform limitation.

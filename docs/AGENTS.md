@@ -62,8 +62,8 @@ provider IDs `codex` and `grok-bot`. Clients cannot supply a file path or comman
 The helper reads only those providers' standard roots and returns a metadata-only
 snapshot capped at 256 KiB. This local development build checks caller identity
 by executable path, bundle ID and user; it does not claim Developer ID attestation.
-No credential/auth-file reads, retained conversation content, keychain access,
-network requests or new entitlements are added. Existing manual grants use sandboxed readers
+The session-monitoring adapters add no credential/auth-file reads, retained
+conversation content, Keychain access, network requests or new entitlements. Existing manual grants use sandboxed readers
 and take precedence. Pause stops polling and removes displayed data, rather than
 revoking the helper's inherited OS permissions. Connect controls are hidden for
 installed, running or recognized CLI apps even when their usage is unavailable.
@@ -230,3 +230,28 @@ the inherited MediaRemoteAdapter framework at launch. No system protection is
 changed. Public distribution must use proper signing of the app and embedded
 frameworks, Hardened Runtime and notarization. The inherited framework also
 reports a newer macOS build target, so macOS 14–26 compatibility is unverified.
+
+## Private Dot text chat (11 October 2026)
+
+The Agents header opens a separate native Dot panel attached to its notch window.
+The notch dimensions stay unchanged. The panel retains drafts and pending sends,
+uses Return to send and Shift–Return for a newline, and dismisses on Escape, close,
+outside click, tab change or screen lock. Its interaction hold belongs to that
+window; incoming notifications cannot replace the open chat.
+
+DotChatStore and DotChatTransport are separate from all session readers. They
+forward only explicitly sent chat text to the owner's private relay. Drafts and
+the bounded local transcript use AES-GCM; keys and native OAuth credentials use
+Keychain. The relay uses the exact owner's GitHub identity, PKCE, encrypted
+Durable Object storage, signed callbacks, expiry and duplicate protection.
+The last 100 local messages or 1 MiB and an 8 KiB draft are retained; relay payloads
+expire after seven days. Existing ChatGPT history is not mirrored. Receipt is not
+proof of Dot processing. Voice, attachments and approval controls are absent.
+
+Relay: https://boring-notch-dot-relay.ext-joao-junqueira.workers.dev
+Setup and protocol limits: [private relay README](../integrations/dot-relay/README.md).
+The real authenticated message-and-reply acceptance test is still pending.
+
+Agents list scrolling bypasses the parent swipe handlers while Agents is visible;
+stale momentum is suppressed across tab changes. Home gestures retain their
+existing behavior. Reducer tests do not substitute for physical trackpad testing.
