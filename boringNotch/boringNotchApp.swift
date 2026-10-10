@@ -64,7 +64,6 @@ struct DynamicNotchApp: App {
         // Initialize the settings window controller with the updater controller
         SettingsWindowController.shared.setUpdaterController(updaterController)
 
-        let updaterController = self.updaterController
         Task { @MainActor in
             let sourceURL = Bundle.main.bundleURL
             if let destinationURL = LegacyAppBundleMigration.destinationURL(for: sourceURL) {
@@ -80,7 +79,9 @@ struct DynamicNotchApp: App {
                 }
                 NSLog("Failed to migrate legacy Boring Notch app bundle at %@", sourceURL.path)
             }
-            updaterController.startUpdater()
+            // Fork builds deliberately leave Sparkle stopped: the upstream
+            // feed would replace the Agents fork with the original application.
+            _ = AgentMonitor.shared
         }
     }
 
@@ -92,7 +93,8 @@ struct DynamicNotchApp: App {
                 }
             }
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
-            CheckForUpdatesView(updater: updaterController.updater)
+            Button("Agents") { AgentsWindowController.shared.show() }
+            Link("Fork source and updates", destination: URL(string: "https://github.com/junque1r4/boring.notch/tree/agents/phase-1")!)
             Button("Restart Boring Notch") {
                 ApplicationRelauncher.restart()
             }
@@ -100,6 +102,12 @@ struct DynamicNotchApp: App {
                 NSApplication.shared.terminate(self)
             }
             .keyboardShortcut(KeyEquivalent("Q"), modifiers: .command)
+        }
+        .commands {
+            CommandMenu("Agents") {
+                Button("Open Agent Center") { AgentsWindowController.shared.show() }
+                    .keyboardShortcut("a", modifiers: [.command, .shift])
+            }
         }
     }
 }

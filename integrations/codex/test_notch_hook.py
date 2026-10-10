@@ -43,6 +43,13 @@ class HookTests(unittest.TestCase):
             hook.write_status({"session_id": ID, "hook_event_name": "PostToolUse", "tool_response": {"exit_code": 1}}, root)
             self.assertEqual(json.loads((root / (ID + ".json")).read_text())["state"], "working")
 
+    def test_compaction_does_not_change_an_active_turn_to_waiting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            hook.write_status({"session_id": ID, "hook_event_name": "UserPromptSubmit"}, root)
+            hook.write_status({"session_id": ID, "hook_event_name": "SessionStart", "source": "compact"}, root)
+            self.assertEqual(json.loads((root / (ID + ".json")).read_text())["state"], "working")
+
 
 if __name__ == "__main__":
     unittest.main()

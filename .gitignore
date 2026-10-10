@@ -53,3 +53,7 @@ build/
 *.xcarchive
 *.dSYM
 
+
+# Python hook test caches
+__pycache__/
+*.pyc

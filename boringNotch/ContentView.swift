@@ -575,6 +575,8 @@ struct ContentView: View {
                                 horizontalMediaGestureFeedback: horizontalMediaGestureFeedback,
                                 isHoveringMusicArea: $isHoveringMusicArea
                             )
+                        case .agents:
+                            AgentsView()
                         case .shelf:
                             ShelfView(
                                 dropInteraction: vm.dropInteraction,

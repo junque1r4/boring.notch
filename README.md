@@ -1,3 +1,5 @@
+> **Modified GPL-3.0 fork: Boring Notch Agents.** Based on v2.8-rc.2. See [Phase 1 setup and limitations](docs/AGENTS.md) and [modification notice](MODIFICATIONS.md). Automatic upstream updates are disabled.
+
 <h1 align="center">
   <br>
   <a href="http://theboring.name"><img src="https://framerusercontent.com/images/RFK4vs0kn8pRMuOO58JeyoemXA.png?scale-down-to=256" alt="Boring Notch" width="150"></a>

@@ -20,6 +20,9 @@ STATES = {
 
 def write_status(payload, destination):
     event = payload.get("hook_event_name")
+    # Compaction starts a new model context inside an active turn; it is not idle.
+    if event == "SessionStart" and payload.get("source") == "compact":
+        return
     if event not in STATES and event != "SessionEnd":
         return
     session_id = str(uuid.UUID(payload["session_id"]))
