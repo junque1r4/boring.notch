@@ -15,5 +15,11 @@ This is a modified version, not an official TheBoredTeam release.
 - Added a shared Xcode test scheme, standalone core tests, hook tests, setup,
   validation and distribution instructions.
 
+- Refined only the Agents UI with CodeNotch-inspired remaining-usage rings,
+  Notchi-inspired compact/hover session rows and Working/Attention filters.
+- Added installed/running Codex and Grok Bot detection, local Codex quota windows
+  and Grok Bot weekly-cache adapter, with unavailable/stale/reset/ambiguity handling.
+  No credentials, API calls, Grok cloud task status or approval controls were added.
+
 Original license, copyright notices, credits and third-party notices remain.
 See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.

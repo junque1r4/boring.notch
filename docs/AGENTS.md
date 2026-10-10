@@ -18,7 +18,7 @@ releases access, and clears the displayed session cache. It does not change Code
 
 ### Optional local session-log adapter
 
-Choose `~/.codex/sessions` with **Choose session logs**. Hidden folders are
+Choose `~/.codex/sessions` with **Codex → Connect local data**. Hidden folders are
 visible in the picker; ⇧⌘G can enter the path. Choose the `sessions` directory
 under your actual `CODEX_HOME` if customized.
 
@@ -29,7 +29,7 @@ JSON record may be buffered briefly in memory, up to 1 MiB, until its next write
 The append budget is 1 MiB per poll; exceeding it resets the old state to Unknown
 and rechecks the bounded tail instead of carrying a status across an unread gap.
 It rejects symlinks escaping the grant, tolerates partial writes, and keeps only
-session ID, project directory name, origin, lifecycle state, turn ID and time.
+session ID, project directory name, origin, lifecycle state, turn ID, time and reported Codex quota percentages/reset times.
 JSON records may briefly contain other fields while decoding, but those fields
 are never retained in the model, logged, persisted or transmitted by monitoring.
 The maximum traversal is 20,000 entries; a diagnostic reports reaching that limit.
@@ -40,6 +40,60 @@ events are ignored; unknown states stay Unknown. Changes in format can reduce
 coverage. Archived, remote/cloud-only, older and inaccessible sessions are not
 observed. Desktop origin is identified only from explicit metadata. CLI origin
 requires `source: cli`; other origins remain generic Codex.
+
+### Autodetection and usage rings (Agents tab only)
+
+Codex Desktop (`com.openai.codex`) and Grok Bot (`com.anysphere.sand`) are detected
+using macOS application registration and running-app metadata. Codex CLI is also
+checked at standard Homebrew and local executable locations where sandbox access
+permits. A running app is **not** a Working session. Discovery refreshes every
+three seconds, including when monitoring is off; no process arguments are read.
+Custom CLI installs can still be connected by selecting their local session folder.
+
+Connect local data from a provider's usage card or the Agent Center. Pickers start
+at the usual folder; customization is supported by selecting another location.
+Autodetection never grants folder access automatically. The host retains upstream
+entitlements required for original features; the monitoring adapters themselves
+read only their selected roots and validated metadata files. App Sandbox, read-only
+bookmarks and Disconnect behavior are retained for both providers.
+
+The **ChatGPT** card displays **Codex allowance on the ChatGPT plan**, read from
+`event_msg` / `token_count` / `rate_limits` observations in the granted logs.
+It does not report ChatGPT chat, voice, model-specific message limits or purchased
+credit balances. Primary windows can be weekly rather than five-hour; labels
+use the reported duration. The most recent complete valid provider reading wins;
+missing secondary windows are not filled in with obsolete observations.
+This is the last reported allowance, not an authenticated account query. Switching
+accounts requires fresh log observations; no account identity is read or displayed.
+
+The **Grok Bot** card reads only the schema-2 `weekly-usage.cache` blob in
+`~/Library/Application Support/Grok Bot/sand-client-persistence`, observed in
+Grok Bot 0.68.1. Filenames are decoded solely to select that cache, without
+retaining their account component. Other blobs (conversations, drafts, roster,
+settings) and `sand-secrets.json` are never opened by this provider. Only weekly
+percent used, reset/read/expiry times and plan eligibility flags are projected.
+Unknown schemas, team seats/unknown included limits, malformed/future readings,
+oversized or escaping files are hidden. Multiple account-cache files produce
+an ambiguity diagnostic and no percentage; accounts are never combined.
+This is a local compatibility adapter, not a documented public API.
+
+Grok Bot's weekly pool is distinct from Grok Build CLI. CodeNotch's Grok CLI token
+refresh/billing implementation was not copied. No authentication credentials,
+keychain items or network requests are needed by either quota adapter. The
+[official Grok Bot overview](https://docs.x.ai/grok-bot/overview) confirms its cloud
+execution and weekly pool, but does not document this desktop cache format.
+Cloud task/session states are unavailable here; opening Grok Bot is supported,
+while per-bot navigation and approvals are not offered.
+
+Rings show the remaining fraction; click for every reported window, reset time,
+observation time and provenance. Unknown is not rendered as zero or unlimited.
+Readings older than ten minutes, or past the cache expiry, are dimmed and marked
+**stale**. A passed reset suppresses the percentage until a new reading; it never
+assumes 100% remaining. Opening an app can refresh its cache, but the monitor does
+not force a backend query. Working/Attention filters apply only to observed Codex
+sessions; all original Home/Shelf/media UI remains unchanged by this refinement.
+
+Design references and license notices: [AGENT-DESIGN-NOTICES.md](AGENT-DESIGN-NOTICES.md).
 
 ### Documented Codex hooks
 
@@ -59,7 +113,7 @@ monitoring cannot stop Codex. Hook trust still belongs to Codex.
 4. Review and trust the observer using Codex's normal mechanism, then start a
    new turn. Hooks may be unavailable or restricted by your Codex version or
    managed policy; the app does not bypass those restrictions.
-5. Choose `~/.codex/notch-agent-status` in **Choose hook bridge** after it exists.
+5. Choose `~/.codex/notch-agent-status` in **Choose Codex hook bridge** after it exists.
 
 For a custom bridge path, set `BORING_NOTCH_AGENT_DIR` in the Codex environment,
 and select the same folder in the app. The directory must belong to your user
