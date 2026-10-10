@@ -7,6 +7,11 @@ The user must explicitly ask to connect this private channel and subscribe to
 `notch.message.created` with `conversationId: notch`. Do not subscribe merely
 because this skill is installed. The connected account must be the owner.
 
+Call `notch_connection_status` first to validate the authenticated connection
+without reading chat content. Then subscribe before asking the user to send a
+message: the native app gates Send until the subscription is active. Do not
+request a message ID to bootstrap the subscription.
+
 For each subscribed event, read bounded conversation context using
 `notch_conversation_context` with the originating `messageId`, then send your
 actual response through `notch_reply`, preserving that originating `messageId`.
