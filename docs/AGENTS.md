@@ -12,15 +12,20 @@ expanded notch, or **Agents → Open Agent Center** (⇧⌘A) in the app menu.
 The menu-bar Agents item also opens the center in compact player mode, which
 retains the original player-only layout.
 
-Monitoring is off by default. The app asks you to choose folders and saves
-read-only security-scoped bookmarks. Disconnect revokes its saved bookmark,
-releases access, and clears the displayed session cache. It does not change Codex.
+Detected Codex and Grok Bot installations connect automatically to their standard
+local metadata folders. No folder picker is needed for either detected app.
+**Pause monitoring** stops that provider, clears its displayed data and remembers
+the pause across launches; **Resume monitoring** restores automatic connection.
+Manual **Connect local data** appears only when the provider cannot be identified.
+Manual connections save read-only security-scoped bookmarks; disconnecting
+releases access and removes the bookmark. Monitoring does not change either app.
 
 ### Optional local session-log adapter
 
-Choose `~/.codex/sessions` with **Codex → Connect local data**. Hidden folders are
-visible in the picker; ⇧⌘G can enter the path. Choose the `sessions` directory
-under your actual `CODEX_HOME` if customized.
+Detected Codex reads `~/.codex/sessions` automatically. An existing manual folder
+grant takes precedence. For an undetected custom installation, **Codex → Connect
+local data** accepts the `sessions` directory under its actual `CODEX_HOME`.
+Hidden folders are visible in the picker; ⇧⌘G can enter the path.
 
 The adapter observes Desktop and CLI logs from the last 24 hours, up to 80
 recent files. It reads a bounded header and tail, caches unchanged files,
@@ -28,7 +33,7 @@ then reads appended records so a long turn keeps its observed state. A partial
 JSON record may be buffered briefly in memory, up to 1 MiB, until its next write.
 The append budget is 1 MiB per poll; exceeding it resets the old state to Unknown
 and rechecks the bounded tail instead of carrying a status across an unread gap.
-It rejects symlinks escaping the grant, tolerates partial writes, and keeps only
+It rejects symlinks escaping its root, tolerates partial writes, and keeps only
 session ID, project directory name, origin, lifecycle state, turn ID, time and reported Codex quota percentages/reset times.
 JSON records may briefly contain other fields while decoding, but those fields
 are never retained in the model, logged, persisted or transmitted by monitoring.
@@ -47,21 +52,29 @@ Codex Desktop (`com.openai.codex`) and Grok Bot (`com.anysphere.sand`) are detec
 using macOS application registration and running-app metadata. Codex CLI is also
 checked at standard Homebrew and local executable locations where sandbox access
 permits. A running app is **not** a Working session. Discovery refreshes every
-three seconds, including when monitoring is off; no process arguments are read.
+three seconds, including when monitoring is paused; no process arguments are read.
 Custom CLI installs can still be connected by selecting their local session folder.
 
-Connect local data from a provider's usage card or the Agent Center. Pickers start
-at the usual folder; customization is supported by selecting another location.
-Autodetection never grants folder access automatically. The host retains upstream
-entitlements required for original features; the monitoring adapters themselves
-read only their selected roots and validated metadata files. App Sandbox, read-only
-bookmarks and Disconnect behavior are retained for both providers.
+Automatic readers use the already embedded upstream XPC helper, whose inherited
+unsandboxed configuration is unchanged. Its new Agents endpoint accepts only the
+enclosing app's executable path and bundle ID, from the same user, and the fixed
+provider IDs `codex` and `grok-bot`. Clients cannot supply a file path or command.
+The helper reads only those providers' standard roots and returns a metadata-only
+snapshot capped at 256 KiB. This local development build checks caller identity
+by executable path, bundle ID and user; it does not claim Developer ID attestation.
+No credential/auth-file reads, retained conversation content, keychain access,
+network requests or new entitlements are added. Existing manual grants use sandboxed readers
+and take precedence. Pause stops polling and removes displayed data, rather than
+revoking the helper's inherited OS permissions. Connect controls are hidden for
+installed, running or recognized CLI apps even when their usage is unavailable.
 
 The **ChatGPT** card displays **Codex allowance on the ChatGPT plan**, read from
-`event_msg` / `token_count` / `rate_limits` observations in the granted logs.
+`event_msg` / `token_count` / `rate_limits` observations in the local logs.
 It does not report ChatGPT chat, voice, model-specific message limits or purchased
-credit balances. Primary windows can be weekly rather than five-hour; labels
-use the reported duration. The most recent complete valid provider reading wins;
+credit balances. The card headline always selects a reported **Weekly** window,
+whether it is primary or secondary. A five-hour window remains available in
+details but never substitutes for missing weekly usage. The most recent complete
+valid provider reading wins;
 missing secondary windows are not filled in with obsolete observations.
 This is the last reported allowance, not an authenticated account query. Switching
 accounts requires fresh log observations; no account identity is read or displayed.
@@ -85,8 +98,10 @@ execution and weekly pool, but does not document this desktop cache format.
 Cloud task/session states are unavailable here; opening Grok Bot is supported,
 while per-bot navigation and approvals are not offered.
 
-Rings show the remaining fraction; click for every reported window, reset time,
-observation time and provenance. Unknown is not rendered as zero or unlimited.
+Rings show the weekly remaining fraction; click for every reported window, reset
+time, observation time and provenance. The notch stays open while a quota popup
+is presented, including when its controls extend below the notch. Dismissing the
+popup restores normal hover closing. Unknown is not rendered as zero or unlimited.
 Readings older than ten minutes, or past the cache expiry, are dimmed and marked
 **stale**. A passed reset suppresses the percentage until a new reading; it never
 assumes 100% remaining. Opening an app can refresh its cache, but the monitor does

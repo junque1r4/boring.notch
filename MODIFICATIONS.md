@@ -20,6 +20,14 @@ This is a modified version, not an official TheBoredTeam release.
 - Added installed/running Codex and Grok Bot detection, local Codex quota windows
   and Grok Bot weekly-cache adapter, with unavailable/stale/reset/ambiguity handling.
   No credentials, API calls, Grok cloud task status or approval controls were added.
+- Added automatic fixed-root metadata readers for detected apps through the
+  existing local helper, with an allowlisted caller and bounded metadata replies.
+  Manual connection controls now appear only for unidentified installations;
+  provider monitoring can be paused and resumed.
+- Changed the ChatGPT ring headline to weekly allowance, and linked Agents quota
+  popup presentation to the notch's existing popover hold so its lower controls
+  remain accessible. The only shared-view refinement is that Agents hold binding;
+  no Home/Shelf/media behavior was changed.
 
 Original license, copyright notices, credits and third-party notices remain.
 See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.
