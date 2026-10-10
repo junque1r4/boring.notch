@@ -577,7 +577,7 @@ struct ContentView: View {
                                 isHoveringMusicArea: $isHoveringMusicArea
                             )
                         case .agents:
-                            AgentsView()
+                            AgentsView(popoverActive: $vm.isPopoverActive)
                         case .shelf:
                             ShelfView(
                                 dropInteraction: vm.dropInteraction,

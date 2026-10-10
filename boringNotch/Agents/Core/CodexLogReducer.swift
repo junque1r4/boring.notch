@@ -63,7 +63,7 @@ enum CodexLogReducer {
         }
         current.state = state
         current.updatedAt = date
-        current.turnID = payload["turn_id"] as? String ?? current.turnID
+        current.turnID = (payload["turn_id"] as? String).map { String($0.prefix(80)) } ?? current.turnID
         session = current
     }
 

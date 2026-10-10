@@ -3,7 +3,7 @@ import Foundation
 import CoreFoundation
 
 /// An observed quota, never a guessed limit or a ChatGPT chat-message allowance.
-struct AgentUsageWindow: Identifiable, Equatable, Sendable {
+struct AgentUsageWindow: Identifiable, Codable, Equatable, Sendable {
     let id: String
     let providerID: String
     let label: String
@@ -20,6 +20,11 @@ struct AgentUsageWindow: Identifiable, Equatable, Sendable {
         // Crossing a reset does not prove that the new window is unused.
         guard resetsAt.map({ $0 > now }) ?? true else { return nil }
         return max(0, 100 - min(100, usedPercent))
+    }
+    static func headline(for providerID: String, in windows: [AgentUsageWindow]) -> AgentUsageWindow? {
+        // Weekly quota can arrive as primary or secondary. Never substitute
+        // five-hour quota for the ChatGPT weekly headline if weekly is absent.
+        windows.first { $0.providerID == providerID && $0.label == "Weekly" }
     }
     static func validPercent(_ value: Any?) -> Double? {
         guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),

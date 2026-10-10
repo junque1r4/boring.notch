@@ -51,6 +51,8 @@ import SwiftUI
         let now = Date()
         let windows = [AgentUsageWindow(id: "codex.primary", providerID: "codex", label: "5-hour", usedPercent: 22,
             resetsAt: now.addingTimeInterval(3600), observedAt: now, expiresAt: nil, source: "Local log"),
+            AgentUsageWindow(id: "codex.secondary", providerID: "codex", label: "Weekly", usedPercent: 44,
+                resetsAt: now.addingTimeInterval(86400), observedAt: now, expiresAt: nil, source: "Local log"),
             AgentUsageWindow(id: "grok-bot.weekly", providerID: "grok-bot", label: "Weekly", usedPercent: 62,
             resetsAt: now.addingTimeInterval(86400), observedAt: now.addingTimeInterval(-700), expiresAt: nil, source: "Desktop cache")]
         let sessions = AgentState.allCases.enumerated().map { index, state in
@@ -83,6 +85,8 @@ import SwiftUI
             project: "Working project", surface: .cli, state: .working, evidence: .localLog, updatedAt: now, turnID: "t")
         let windows = [AgentUsageWindow(id: "codex.primary", providerID: "codex", label: "5-hour", usedPercent: 22,
             resetsAt: now.addingTimeInterval(3600), observedAt: now, expiresAt: nil, source: "Local log"),
+            AgentUsageWindow(id: "codex.secondary", providerID: "codex", label: "Weekly", usedPercent: 44,
+                resetsAt: now.addingTimeInterval(86400), observedAt: now, expiresAt: nil, source: "Local log"),
             AgentUsageWindow(id: "grok-bot.weekly", providerID: "grok-bot", label: "Weekly", usedPercent: 62,
             resetsAt: now.addingTimeInterval(86400), observedAt: now, expiresAt: nil, source: "Desktop cache")]
         let view = AgentsDashboard(sessions: [session], usage: windows, apps: [], connected: ["logs", "grok"],
@@ -106,6 +110,32 @@ import SwiftUI
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent("agent-notch.png"))
         }
+    }
+
+    func testQuotaConnectionOnlyAppearsForUndetectedUnconnectedApp() {
+        func card(_ app: DetectedAgentApp?, connected: Bool = false) -> AgentQuotaCard {
+            AgentQuotaCard(title: "ChatGPT", caption: "Codex allowance", glyph: "C", windows: [], app: app,
+                connected: connected, now: Date(), connect: {}, openApp: {})
+        }
+        XCTAssertTrue(card(nil).offersManualConnection)
+        XCTAssertFalse(card(nil, connected: true).offersManualConnection)
+        XCTAssertFalse(card(DetectedAgentApp(id: "codex", name: "Codex", url: nil, isRunning: true, cliInstalled: false)).offersManualConnection)
+        XCTAssertFalse(card(DetectedAgentApp(id: "codex", name: "Codex", url: URL(fileURLWithPath: "/Applications/Codex.app"), isRunning: false, cliInstalled: false)).offersManualConnection)
+        XCTAssertFalse(card(DetectedAgentApp(id: "codex", name: "Codex", url: nil, isRunning: false, cliInstalled: true)).offersManualConnection)
+    }
+
+    func testPopoverRetentionSurvivesSwitchAndReleasesOnDismissal() {
+        var state = AgentPopoverState()
+        XCTAssertFalse(state.isActive)
+        state.update(providerID: "codex", showing: true)
+        state.update(providerID: "grok-bot", showing: true)
+        state.update(providerID: "codex", showing: false)
+        XCTAssertTrue(state.isActive)
+        state.update(providerID: "grok-bot", showing: false)
+        XCTAssertFalse(state.isActive)
+        state.update(providerID: "codex", showing: true)
+        state.reset()
+        XCTAssertFalse(state.isActive)
     }
 
     func testDiscoveryIncludesCodexAndGrokWithoutFabricatingSessions() {

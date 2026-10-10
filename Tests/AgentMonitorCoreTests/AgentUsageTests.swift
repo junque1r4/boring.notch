@@ -12,6 +12,40 @@ final class AgentUsageTests: XCTestCase {
             "expiresAtMs": now.addingTimeInterval(86400).timeIntervalSince1970 * 1000,
             "reading": ["readAtMs": (date ?? now).timeIntervalSince1970 * 1000, "usage": usage]]])
     }
+    func testWeeklyHeadlinePrefersSecondaryAndNeverFallsBackToFiveHour() {
+        func window(_ id: String, _ label: String) -> AgentUsageWindow {
+            AgentUsageWindow(id: id, providerID: "codex", label: label, usedPercent: 44,
+                resetsAt: now.addingTimeInterval(86400), observedAt: now, expiresAt: nil, source: "Local log")
+        }
+        let short = window("codex.primary", "5-hour"), weekly = window("codex.secondary", "Weekly")
+        XCTAssertEqual(AgentUsageWindow.headline(for: "codex", in: [short, weekly])?.id, weekly.id)
+        XCTAssertNil(AgentUsageWindow.headline(for: "codex", in: [short]))
+        XCTAssertEqual(AgentUsageWindow.headline(for: "codex", in: [window("codex.primary", "Weekly")])?.label, "Weekly")
+    }
+
+    func testAutomaticReaderUsesFixedRootsAndProjectsOnlyMetadata() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let logs = home.appendingPathComponent(".codex/sessions")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let record: [String: Any] = ["timestamp": ISO8601DateFormatter().string(from: Date()), "type": "session_meta",
+            "payload": ["id": "11111111-2222-3333-4444-555555555555", "cwd": "/private/project", "source": "cli", "secret": "private credential"]]
+        var content = try JSONSerialization.data(withJSONObject: record); content.append(10)
+        try content.write(to: logs.appendingPathComponent("session.jsonl"))
+        try Data("private credential".utf8).write(to: home.appendingPathComponent(".codex/auth.json"))
+        let reader = AutomaticAgentReader(home: home)
+        let result = await reader.snapshot(providerID: "codex", at: Date())
+        let snapshot = try XCTUnwrap(result)
+        XCTAssertEqual(snapshot.sessions.first?.project, "project")
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self).contains("private credential"))
+        for rejected in ["../../auth.json", "hooks", "/etc/passwd", "unknown"] {
+            let invalid = await reader.snapshot(providerID: rejected, at: Date())
+            XCTAssertNil(invalid)
+        }
+        let wire = try JSONDecoder().decode(AgentSnapshot.self, from: JSONEncoder().encode(snapshot))
+        XCTAssertEqual(wire.sessions, snapshot.sessions)
+    }
+
     func testGrokQuotaIsDistinctAndNeverInventsNewResetUsage() throws {
         let value = try XCTUnwrap(GrokBotUsageCache.decode(grok(), now: now).first)
         XCTAssertEqual(value.providerID, "grok-bot")

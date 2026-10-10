@@ -11,6 +11,8 @@ final class AgentMonitor {
     private(set) var detectedApps: [DetectedAgentApp] = []
     private(set) var diagnostics: [String] = []
     private(set) var folderNames: [String: String] = [:]
+    private(set) var automaticKinds: Set<String> = []
+    private(set) var pausedKinds: Set<String> = []
     private(set) var latestAlert: AgentSession?
     private(set) var navigationMessage: String?
     private(set) var refreshedAt: Date?
@@ -27,6 +29,7 @@ final class AgentMonitor {
     private init() {
         alertsEnabled = UserDefaults.standard.bool(forKey: "agents.alerts")
         UNUserNotificationCenter.current().delegate = notifications
+        pausedKinds = Set(["logs", "grok", "hooks"].filter { UserDefaults.standard.bool(forKey: "agents.paused.\($0)") })
         restore("logs")
         restore("hooks")
         restore("grok")
@@ -45,6 +48,29 @@ final class AgentMonitor {
             }
             attach(url, kind: kind)
         } catch { diagnostics.append("Saved folder access unavailable. Choose the \(kind) folder again.") }
+    }
+
+    private func discoverAndConnect() {
+        detectedApps = AgentDiscovery.apps()
+        for app in detectedApps {
+            let kind = app.id == "codex" ? "logs" : "grok"
+            if app.isIdentified && !pausedKinds.contains(kind) {
+                if providers[kind] == nil {
+                    providers[kind] = AutomaticAgentProvider(providerID: app.id)
+                    automaticKinds.insert(kind)
+                    folderNames[kind] = "Automatic"
+                }
+            } else if automaticKinds.remove(kind) != nil {
+                providers.removeValue(forKey: kind)
+                folderNames.removeValue(forKey: kind)
+            }
+        }
+    }
+
+    func resume(_ kind: String) {
+        pausedKinds.remove(kind)
+        UserDefaults.standard.removeObject(forKey: "agents.paused.\(kind)")
+        restart()
     }
 
     func chooseFolder(_ kind: String) {
@@ -68,6 +94,8 @@ final class AgentMonitor {
             }
             detach(kind)
             UserDefaults.standard.set(bookmark, forKey: "agents.bookmark.\(kind)")
+            pausedKinds.remove(kind)
+            UserDefaults.standard.removeObject(forKey: "agents.paused.\(kind)")
             attach(url, kind: kind)
             restart()
         } catch { navigationMessage = "Could not save folder access. Choose the folder again." }
@@ -84,6 +112,7 @@ final class AgentMonitor {
     }
 
     private func detach(_ kind: String) {
+        automaticKinds.remove(kind)
         grants.removeValue(forKey: kind)?.stopAccessingSecurityScopedResource()
         providers.removeValue(forKey: kind)
         folderNames.removeValue(forKey: kind)
@@ -91,6 +120,8 @@ final class AgentMonitor {
     }
 
     func disconnect(_ kind: String) {
+        pausedKinds.insert(kind)
+        UserDefaults.standard.set(true, forKey: "agents.paused.\(kind)")
         detach(kind)
         restart()
     }
@@ -103,8 +134,8 @@ final class AgentMonitor {
         latestAlert = nil
         refreshedAt = nil
         alerts = AgentAlertPolicy(startedAt: Date())
-        detectedApps = AgentDiscovery.apps()
-        if providers.isEmpty { diagnostics = ["Monitoring is off. Connect a detected app to start."] }
+        discoverAndConnect()
+        if providers.isEmpty { diagnostics = ["Monitoring is paused or no app is detected."] }
         task = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
@@ -114,6 +145,7 @@ final class AgentMonitor {
     }
 
     func refresh() async {
+        discoverAndConnect()
         let currentGeneration = generation
         let date = Date()
         let activeProviders = Array(providers.values)
@@ -124,10 +156,9 @@ final class AgentMonitor {
             return snapshots
         }
         guard !Task.isCancelled, currentGeneration == generation else { return }
-        detectedApps = AgentDiscovery.apps()
         sessions = AgentSessionMerge.merge(snapshots)
         usage = AgentUsageWindow.merge(snapshots.flatMap(\.usage))
-        diagnostics = snapshots.isEmpty ? ["Monitoring is off. Connect a detected app to start."] : snapshots.map(\.diagnostic).sorted()
+        diagnostics = snapshots.isEmpty ? ["Monitoring is paused or no app is detected."] : snapshots.map(\.diagnostic).sorted()
         refreshedAt = date
         let transitions = alerts.transitions(sessions, now: date)
         if let session = transitions.first { latestAlert = session }

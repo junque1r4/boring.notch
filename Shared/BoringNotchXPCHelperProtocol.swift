@@ -44,6 +44,8 @@ final class BNLunarBrightnessEvent: NSObject, NSSecureCoding {
 }
 
 @objc protocol BoringNotchXPCHelperProtocol {
+    // Agents-only metadata endpoint; accepted IDs are codex and grok-bot.
+    func readAgentSnapshot(providerID: String, with reply: @escaping (Data?) -> Void)
     func isAccessibilityAuthorized(with reply: @escaping (Bool) -> Void)
     func migrateLegacyAppBundle(from sourcePath: String, to destinationPath: String, with reply: @escaping (Bool) -> Void)
     func requestAccessibilityAuthorization()

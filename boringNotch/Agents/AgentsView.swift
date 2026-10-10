@@ -44,11 +44,22 @@ enum AgentSessionFilter: String, CaseIterable, Identifiable {
 
 struct AgentsView: View {
     var monitor = AgentMonitor.shared
+    @Binding var popoverActive: Bool
+    @State private var activePopovers = AgentPopoverState()
+    init(monitor: AgentMonitor = .shared, popoverActive: Binding<Bool> = .constant(false)) {
+        self.monitor = monitor
+        _popoverActive = popoverActive
+    }
     var body: some View {
         AgentsDashboard(sessions: monitor.sessions, usage: monitor.usage, apps: monitor.detectedApps,
             connected: Set(monitor.folderNames.keys), alert: monitor.latestAlert, now: monitor.refreshedAt ?? Date(),
             navigate: monitor.navigate, connect: monitor.chooseFolder, openApp: monitor.openApp,
-            settings: { AgentsWindowController.shared.show() }, dismissAlert: monitor.dismissAlert)
+            settings: { AgentsWindowController.shared.show() }, dismissAlert: monitor.dismissAlert,
+            popoverChanged: { id, showing in
+                activePopovers.update(providerID: id, showing: showing)
+                popoverActive = activePopovers.isActive
+            })
+            .onDisappear { activePopovers.reset(); popoverActive = false }
     }
 }
 
@@ -64,6 +75,7 @@ struct AgentsDashboard: View {
     let openApp: (String) -> Void
     let settings: () -> Void
     let dismissAlert: () -> Void
+    var popoverChanged: (String, Bool) -> Void = { _, _ in }
     @State private var filter: AgentSessionFilter = .all
 
     var body: some View {
@@ -98,7 +110,7 @@ struct AgentsDashboard: View {
             if !compact { HStack { filters(compact: false); Spacer() } }
             if sessions.filter(filter.includes).isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(sessions.isEmpty ? "No local sessions connected" : "No sessions in this view").font(.system(size: 10, weight: .medium))
+                    Text(sessions.isEmpty ? connected.contains("logs") ? "No recent local sessions" : "No local sessions detected" : "No sessions in this view").font(.system(size: 10, weight: .medium))
                     if !compact { Text("Grok Bot is detected separately; its cloud task states are unavailable locally.")
                         .font(.system(size: 9)).foregroundStyle(.secondary) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -133,7 +145,7 @@ struct AgentsDashboard: View {
     private func quotaCard(_ id: String, title: String, caption: String, glyph: String, kind: String, compact: Bool) -> some View {
         AgentQuotaCard(title: title, caption: caption, glyph: glyph, windows: usage.filter { $0.providerID == id },
             app: apps.first { $0.id == id }, connected: connected.contains(kind), now: now,
-            connect: { connect(kind) }, openApp: { openApp(id) }, compact: compact)
+            connect: { connect(kind) }, openApp: { openApp(id) }, compact: compact, popoverChanged: { popoverChanged(id, $0) })
     }
 }
 
@@ -148,17 +160,20 @@ struct AgentQuotaCard: View {
     let connect: () -> Void
     let openApp: () -> Void
     var compact = false
+    var popoverChanged: (Bool) -> Void = { _ in }
     @State private var showDetails = false
-    private var headline: AgentUsageWindow? { windows.first }
+    private var headline: AgentUsageWindow? { AgentUsageWindow.headline(for: glyph == "C" ? "codex" : "grok-bot", in: windows) }
+    var offersManualConnection: Bool { app?.isIdentified != true && !connected }
+    private var unavailableLabel: String { offersManualConnection ? "Connect" : "Weekly unavailable" }
     private var remaining: Double? { headline?.remainingPercent(at: now) }
 
     var body: some View {
-        Button { showDetails = true } label: {
+        Button { popoverChanged(true); showDetails = true } label: {
             HStack(spacing: 7) {
                 AgentQuotaRing(remaining: remaining, glyph: glyph, stale: headline?.isStale(at: now) ?? false, diameter: compact ? 28 : 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.system(size: 11, weight: .semibold)).lineLimit(1)
-                    Text(remaining.map { "\(Int($0.rounded(.down)))% left\(compact ? " · " + (headline?.label ?? "") : "")" } ?? (connected ? "Not reported" : "Connect"))
+                    Text(remaining.map { "\(Int($0.rounded(.down)))% left\(compact ? " · " + (headline?.label ?? "") : "")" } ?? unavailableLabel)
                         .font(.system(size: 10, weight: .medium, design: .monospaced)).lineLimit(1)
                     if !compact { Text(headline.map { $0.isStale(at: now) ? "\($0.label) · stale" : "\($0.label) · snapshot" }
                          ?? app?.status ?? caption)
@@ -169,14 +184,16 @@ struct AgentQuotaCard: View {
             }.padding(compact ? 6 : 8).frame(maxWidth: .infinity, alignment: .leading)
                 .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
         }
-        .accessibilityLabel("\(title), \(remaining.map { "\(Int($0.rounded(.down))) percent remaining" } ?? "usage unavailable")")
+        .accessibilityLabel("\(title), \(remaining.map { "\(Int($0.rounded(.down))) percent remaining" } ?? "weekly usage unavailable")")
+        .onChange(of: showDetails) { _, showing in popoverChanged(showing) }
+        .onDisappear { popoverChanged(false) }
         .popover(isPresented: $showDetails, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(title).font(.headline)
                 Text(caption).font(.caption).foregroundStyle(.secondary)
                 Text(app?.status ?? "Discovery pending").font(.caption)
                 if windows.isEmpty {
-                    Text(connected ? "No supported usage reading yet. Open the app to refresh its local data." : "Connect its local folder once to allow read-only monitoring.")
+                    Text(offersManualConnection ? "App not detected. Choose its local data folder to connect manually." : "No weekly reading yet. Automatic monitoring retries as the app updates its local data.")
                         .font(.caption)
                 }
                 ForEach(windows) { window in
@@ -193,7 +210,7 @@ struct AgentQuotaCard: View {
                     : "This is Grok Bot’s cached weekly pool, separate from Grok Build CLI. Task status is not exposed by this cache.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
-                    if !connected { Button("Connect local data…") { showDetails = false; connect() } }
+                    if offersManualConnection { Button("Connect local data…") { showDetails = false; popoverChanged(false); connect() } }
                     if app?.url != nil { Button("Open app", action: openApp) }
                 }
             }.padding(16).frame(width: 310).fixedSize(horizontal: false, vertical: true)
@@ -274,7 +291,7 @@ struct AgentSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Your agents, at a glance").font(.title2.bold())
-                Text("Apps are detected automatically. Connect their local data once for read-only monitoring. No credentials or conversation content are retained or sent anywhere.")
+                Text("Apps and their local data are connected automatically. Monitoring keeps only status and usage metadata on this Mac.")
                     .font(.callout).foregroundStyle(.secondary)
                 ForEach(monitor.detectedApps) { app in
                     HStack {
@@ -282,13 +299,18 @@ struct AgentSettingsView: View {
                         Spacer()
                         if app.url != nil { Button("Open app") { monitor.openApp(app.id) } }
                         let kind = app.id == "codex" ? "logs" : "grok"
-                        if let name = monitor.folderNames[kind] {
-                            Text(name).font(.caption).lineLimit(1)
-                            Button("Disconnect") { monitor.disconnect(kind) }
-                        } else { Button("Connect local data…") { monitor.chooseFolder(kind) } }
+                        if monitor.pausedKinds.contains(kind) && app.isIdentified {
+                            Text("Paused").font(.caption)
+                            Button("Resume monitoring") { monitor.resume(kind) }
+                        } else if let name = monitor.folderNames[kind] {
+                            Text(monitor.automaticKinds.contains(kind) ? "Automatic monitoring" : name).font(.caption).lineLimit(1)
+                            Button("Pause monitoring") { monitor.disconnect(kind) }
+                        } else if !app.isIdentified {
+                            Button("Connect local data…") { monitor.chooseFolder(kind) }
+                        } else { Text("Detecting local data…").font(.caption) }
                     }
                 }
-                Text("Codex: ~/.codex/sessions. Grok Bot: ~/Library/Application Support/Grok Bot/sand-client-persistence. Folder dialogs start at these locations. These local formats may change; snapshots can be stale.")
+                Text("Detected apps use their usual local data folders automatically. Manual connection is available when an app cannot be detected. These local formats may change; snapshots can be stale.")
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("Choose Codex hook bridge…") { monitor.chooseFolder("hooks") }

@@ -329,6 +329,7 @@
 		11F748502EC9AABA00F841DB /* BoringNotchXPCHelper */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (11F7485C2EC9AABA00F841DB /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = BoringNotchXPCHelper; sourceTree = "<group>"; };
 		8137A8BA990F4D9CBA56CC7A /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };
 		A5167213301F85B40018095A /* boringNotchTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = boringNotchTests; sourceTree = "<group>"; };
+		AC1010101010101010101011 /* AgentCore */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = boringNotch/Agents/Core; sourceTree = SOURCE_ROOT; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -718,6 +719,7 @@
 		600E881A3042DEAD00B17BFC /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
+				AC1010101010101010101011 /* AgentCore */,
 				8137A8BA990F4D9CBA56CC7A /* Shared */,
 			);
 			name = "Recovered References";
@@ -804,6 +806,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				11F748502EC9AABA00F841DB /* BoringNotchXPCHelper */,
+				AC1010101010101010101011 /* AgentCore */,
 				8137A8BA990F4D9CBA56CC7A /* Shared */,
 			);
 			name = BoringNotchXPCHelper;

@@ -8,6 +8,7 @@ struct DetectedAgentApp: Identifiable, Equatable {
     let url: URL?
     let isRunning: Bool
     let cliInstalled: Bool
+    var isIdentified: Bool { url != nil || isRunning || cliInstalled }
     var status: String {
         if isRunning { return "App running" }
         if url != nil { return cliInstalled ? "App + CLI detected" : "App detected" }

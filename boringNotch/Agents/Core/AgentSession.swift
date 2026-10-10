@@ -14,7 +14,7 @@ enum AgentSurface: String, Codable, Sendable {
     case desktop, cli, unspecified
 }
 
-struct AgentSession: Identifiable, Equatable, Sendable {
+struct AgentSession: Identifiable, Codable, Equatable, Sendable {
     let id: String
     var providerID: String
     var project: String
@@ -33,7 +33,7 @@ struct AgentSession: Identifiable, Equatable, Sendable {
     }
 }
 
-struct AgentSnapshot: Sendable {
+struct AgentSnapshot: Codable, Sendable {
     var sessions: [AgentSession]
     var diagnostic: String
     var usage: [AgentUsageWindow] = []
