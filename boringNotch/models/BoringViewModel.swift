@@ -27,6 +27,11 @@ final class BoringViewModel: NSObject, ObservableObject {
     @Published var isHoveringCalendar: Bool = false
     /// Keeps the open notch alive while a popover is showing.
     @Published var isPopoverActive: Bool = false
+    // Modified 2026-10-11: interaction ownership is per notch window.
+    @Published private(set) var dotInteractionOwners: Set<UUID> = []
+    var isDotChatActive: Bool { !dotInteractionOwners.isEmpty }
+    func acquireDotInteraction(_ owner: UUID) { dotInteractionOwners.insert(owner) }
+    func releaseDotInteraction(_ owner: UUID) { dotInteractionOwners.remove(owner) }
 
     @Published var screenUUID: String?
 

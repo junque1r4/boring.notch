@@ -85,7 +85,8 @@ enum DotChatError: Error, Equatable, LocalizedError {
 
 struct DotRelayConfiguration: Codable, Equatable, Sendable {
     let origin: URL
-    var resource: URL { origin.appendingPathComponent("mcp") }
+    // One audience covers both the native /v1 API and private /mcp endpoint.
+    var resource: URL { origin }
 
     init(endpoint: String) throws {
         guard let parts = URLComponents(string: endpoint.trimmingCharacters(in: .whitespacesAndNewlines)),

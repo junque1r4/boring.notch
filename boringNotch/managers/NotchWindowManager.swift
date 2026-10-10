@@ -53,6 +53,8 @@ final class NotchWindowManager {
     // MARK: - Screen lock / unlock
 
     func screenLocked() {
+        // Chat content is never shown on the lock screen.
+        DotChatPanelController.shared.dismiss(restoreFocus: false)
         isScreenLocked = true
         if !Defaults[.showOnLockScreen] {
             cleanupWindows()

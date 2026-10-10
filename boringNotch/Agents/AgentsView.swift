@@ -44,10 +44,14 @@ enum AgentSessionFilter: String, CaseIterable, Identifiable {
 
 struct AgentsView: View {
     var monitor = AgentMonitor.shared
+    var dot = DotChatStore.shared
+    var notchViewModel: BoringViewModel?
+    @State private var parentWindow: NSWindow?
     @Binding var popoverActive: Bool
     @State private var activePopovers = AgentPopoverState()
-    init(monitor: AgentMonitor = .shared, popoverActive: Binding<Bool> = .constant(false)) {
+    init(monitor: AgentMonitor = .shared, popoverActive: Binding<Bool> = .constant(false), notchViewModel: BoringViewModel? = nil) {
         self.monitor = monitor
+        self.notchViewModel = notchViewModel
         _popoverActive = popoverActive
     }
     var body: some View {
@@ -56,9 +60,14 @@ struct AgentsView: View {
             navigate: monitor.navigate, connect: monitor.chooseFolder, openApp: monitor.openApp,
             settings: { AgentsWindowController.shared.show() }, dismissAlert: monitor.dismissAlert,
             popoverChanged: { id, showing in
+                if showing { DotChatPanelController.shared.dismiss(restoreFocus: false) }
                 activePopovers.update(providerID: id, showing: showing)
                 popoverActive = activePopovers.isActive
+            }, dotUnread: dot.unreadCount, openDot: {
+                guard let parentWindow else { return }
+                DotChatPanelController.shared.show(attachedTo: parentWindow, owner: notchViewModel)
             })
+            .background(DotParentWindowReader { parentWindow = $0 })
             .onDisappear { activePopovers.reset(); popoverActive = false }
     }
 }
@@ -76,6 +85,8 @@ struct AgentsDashboard: View {
     let settings: () -> Void
     let dismissAlert: () -> Void
     var popoverChanged: (String, Bool) -> Void = { _, _ in }
+    var dotUnread = 0
+    var openDot: (() -> Void)?
     @State private var filter: AgentSessionFilter = .all
 
     var body: some View {
@@ -91,6 +102,14 @@ struct AgentsDashboard: View {
                 if !compact { Text("ON THIS MAC").font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundStyle(.secondary) }
                 Spacer()
                 if compact { filters(compact: true) }
+                if let openDot {
+                    Button(action: openDot) {
+                        HStack(spacing: 3) {
+                            Text("Dot")
+                            if dotUnread > 0 { Text("\(min(dotUnread, 99))").font(.system(size: 8, weight: .bold)).padding(3).background(.cyan.opacity(0.3), in: Capsule()) }
+                        }
+                    }.help("Talk to your Dot").accessibilityLabel("Dot chat, \(dotUnread) unread replies")
+                }
                 Button(action: settings) { Image(systemName: "slider.horizontal.3") }
                     .help("Agent monitoring settings").accessibilityLabel("Agent monitoring settings")
             }

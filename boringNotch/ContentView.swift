@@ -1,4 +1,4 @@
-// Modified 2026-10-10: Agents integration in the junque1r4 GPL-3.0 fork.
+// Modified 2026-10-11: Agents scrolling and interaction retention in the GPL-3.0 fork.
 //
 //  ContentView.swift
 //  boringNotchApp
@@ -133,7 +133,7 @@ struct ContentView: View {
     /// controlled by its own internal padding instead, which is the honest
     /// lever anyway.
     private var openNotchHeight: CGFloat? {
-        if notificationManager.activeNotification != nil { return 132 }
+        if notificationManager.activeNotification != nil && !vm.isDotChatActive { return 132 }
         return Defaults[.compactMode] ? nil : vm.notchSize.height
     }
 
@@ -143,8 +143,15 @@ struct ContentView: View {
     /// header spans the full notch width.
     private var showsHeader: Bool {
         vm.notchState == .open
-            && notificationManager.activeNotification == nil
+            && (notificationManager.activeNotification == nil || vm.isDotChatActive)
             && !Defaults[.compactMode]
+    }
+
+    /// Keep the parent gesture installed with the same view identity. Agents
+    /// owns scrolling and selection while its list is actually on screen.
+    private var isVisibleAgentsContent: Bool {
+        vm.notchState == .open && coordinator.currentView == .agents
+            && !Defaults[.compactMode] && (notificationManager.activeNotification == nil || vm.isDotChatActive)
     }
 
     /// The activity currently on top of the stack — what the chin has to be
@@ -313,22 +320,22 @@ struct ContentView: View {
                     }
                     .conditionalModifier(Defaults[.enableGestures] && !shouldDisplayNowPlayingFallbackNotice) { view in
                         view
-                            .panGesture(direction: .down) { translation, phase in
+                            .panGesture(direction: .down, enabled: !isVisibleAgentsContent) { translation, phase in
                                 handleDownGesture(translation: translation, phase: phase)
                             }
                     }
                     .conditionalModifier(Defaults[.closeGestureEnabled] && Defaults[.enableGestures] && !shouldDisplayNowPlayingFallbackNotice) { view in
                         view
-                            .panGesture(direction: .up) { translation, phase in
+                            .panGesture(direction: .up, enabled: !isVisibleAgentsContent) { translation, phase in
                                 handleUpGesture(translation: translation, phase: phase)
                             }
                     }
                     .conditionalModifier(Defaults[.enableHorizontalMediaGestures] && Defaults[.enableGestures] && !shouldDisplayNowPlayingFallbackNotice) { view in
                         view
-                            .panGesture(direction: .left) { translation, phase in
+                            .panGesture(direction: .left, enabled: !isVisibleAgentsContent) { translation, phase in
                                 handleNextTrackGesture(translation: translation, phase: phase)
                             }
-                            .panGesture(direction: .right) { translation, phase in
+                            .panGesture(direction: .right, enabled: !isVisibleAgentsContent) { translation, phase in
                                 handlePreviousTrackGesture(translation: translation, phase: phase)
                             }
                     }
@@ -350,6 +357,21 @@ struct ContentView: View {
                     .onChange(of: vm.isPopoverActive) { _, _ in
                         scheduleCloseIfNotHovering(overNotch: vm)
                     }
+                    .onChange(of: isVisibleAgentsContent) { _, _ in
+                        gestureProgress = .zero
+                        horizontalMediaGestureTriggered = false
+                        horizontalMediaGestureFeedback = .zero
+                    }
+                    .onChange(of: coordinator.currentView) { _, selected in
+                        if selected != .agents { DotChatPanelController.shared.dismiss(ifOwnedBy: vm) }
+                    }
+                    .onChange(of: vm.notchState) { _, state in
+                        if state != .open { DotChatPanelController.shared.dismiss(ifOwnedBy: vm) }
+                    }
+                    .onChange(of: vm.isDotChatActive) { _, _ in
+                        scheduleCloseIfNotHovering(overNotch: vm)
+                    }
+                    .onDisappear { DotChatPanelController.shared.dismiss(ifOwnedBy: vm) }
                     .sensoryFeedback(.alignment, trigger: haptics)
                     .contextMenu {
                         Button("Settings") {
@@ -406,7 +428,7 @@ struct ContentView: View {
                 }
 
                 dropInteraction.dropEvent = false
-                if !SharingStateManager.shared.preventNotchClose {
+                if !SharingStateManager.shared.preventNotchClose && !vm.isDotChatActive {
                     vm.close()
                 }
             }
@@ -547,7 +569,7 @@ struct ContentView: View {
                 VStack {
                     // An open notch with a live notification is showing the
                     // reply UI — the usual tabs can wait until it's dismissed.
-                    if let notification = notificationManager.activeNotification {
+                    if let notification = notificationManager.activeNotification, !vm.isDotChatActive {
                         NotificationExpandedView(notification: notification)
                             .id(notification.id)
                     } else if Defaults[.compactMode] {
@@ -577,7 +599,7 @@ struct ContentView: View {
                                 isHoveringMusicArea: $isHoveringMusicArea
                             )
                         case .agents:
-                            AgentsView(popoverActive: $vm.isPopoverActive)
+                            AgentsView(popoverActive: $vm.isPopoverActive, notchViewModel: vm)
                         case .shelf:
                             ShelfView(
                                 dropInteraction: vm.dropInteraction,
@@ -830,7 +852,7 @@ extension ContentView {
     private func scheduleCloseIfNotHovering(overNotch notchViewModel: BoringViewModel) {
         guard notchViewModel.notchState == .open,
               !isHovering,
-              !notchViewModel.isPopoverActive else { return }
+              !notchViewModel.isPopoverActive, !notchViewModel.isDotChatActive else { return }
         hoverTask?.cancel()
         hoverTask = Task {
             try? await Task.sleep(for: .milliseconds(hoverExitDelayMilliseconds))
@@ -838,7 +860,7 @@ extension ContentView {
             await MainActor.run {
                 if self.vm.notchState == .open,
                    !self.isHovering,
-                   !self.vm.isPopoverActive,
+                   !self.vm.isPopoverActive, !self.vm.isDotChatActive,
                    !SharingStateManager.shared.preventNotchClose {
                     self.vm.close()
                 }
@@ -860,7 +882,7 @@ extension ContentView {
             // minimumHoverDuration plus an animation, and a notification
             // near the end of its life would expire during that — so it
             // vanished exactly as the notch opened around it.
-            if notificationManager.activeNotification != nil {
+            if notificationManager.activeNotification != nil && !vm.isDotChatActive {
                 notificationManager.holdActive()
             }
 
@@ -897,10 +919,10 @@ extension ContentView {
                     }
 
                     // Pointer left — let the notification age out again.
-                    self.notificationManager.resumeDismiss()
+                    if !self.vm.isDotChatActive { self.notificationManager.resumeDismiss() }
 
                     if self.vm.notchState == .open,
-                       !self.vm.isPopoverActive,
+                       !self.vm.isPopoverActive, !self.vm.isDotChatActive,
                        !SharingStateManager.shared.preventNotchClose {
                         self.vm.close()
                     }
@@ -935,6 +957,10 @@ extension ContentView {
     }
 
     private func handleUpGesture(translation: CGFloat, phase: NSEvent.Phase) {
+        guard !isVisibleAgentsContent else {
+            gestureProgress = .zero
+            return
+        }
         guard vm.notchState == .open && !vm.isHoveringCalendar else { return }
 
         withAnimation(animationSpring) {

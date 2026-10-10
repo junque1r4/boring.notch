@@ -226,6 +226,8 @@ private actor DotTestHTTP: DotHTTPClient {
 
     func testPublicHTTPSOriginValidation() throws {
         XCTAssertEqual(try DotRelayConfiguration(endpoint: endpoint + "/").origin.absoluteString, endpoint)
+        // The same public OAuth grant must cover /v1 and /mcp sibling routes.
+        XCTAssertEqual(try DotRelayConfiguration(endpoint: endpoint).resource.absoluteString, endpoint)
         for value in ["http://example.com", "https://localhost", "https://127.0.0.1", "https://169.254.169.254", "https://dot.local",
                       "https://name:password@example.com", "https://example.com/path", "https://example.com?secret=x", "https://example.com:8443"] {
             XCTAssertThrowsError(try DotRelayConfiguration(endpoint: value), value)
