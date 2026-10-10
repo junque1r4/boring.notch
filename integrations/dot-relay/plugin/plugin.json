@@ -1,0 +1,7 @@
+{
+ "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+ "name":"boring-notch-dot","version":"0.1.0",
+ "description":"Private text channel between your Mac notch and your actual Dot.",
+ "author":{"name":"junque1r4"},"repository":"https://github.com/junque1r4/boring.notch","license":"GPL-3.0-only",
+ "extensions":{"com.openai":{"interface":{"displayName":"Boring Notch Dot","shortDescription":"Reply to explicitly sent notch messages","developerName":"junque1r4","category":"Productivity","capabilities":["Read","Write"]}}}
+}
