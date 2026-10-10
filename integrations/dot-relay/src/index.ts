@@ -1,5 +1,5 @@
 // Modified for Boring Notch Agents, 2026-10-11. GPL-3.0-only.
-import { OAuthProvider, insufficientScope, OAuthError } from "@cloudflare/workers-oauth-provider";
+import { OAuthProvider, insufficientScope, OAuthError, AuthorizationError } from "@cloudflare/workers-oauth-provider";
 import type { OAuthResourceContext } from "@cloudflare/workers-oauth-provider";
 import type { Env, OwnerProps } from "./env";
 import { authorization, configured } from "./auth";
@@ -75,7 +75,7 @@ export function createOAuthProvider(env:Env) {
   tokenExchangeCallback:async({props,env:exchangeEnv})=> {
    const owner=props as OwnerProps;
    if(owner.githubId!==OWNER_ID||owner.githubId!==exchangeEnv.OWNER_GITHUB_ID)throw new OAuthError("invalid_grant",{description:"Owner access revoked"});
-   const identity=await fetch("https://api.github.com/user",{headers:{Authorization:`Bearer ${owner.githubToken}`,Accept:"application/vnd.github+json","User-Agent":"Boring-Notch-Dot-Relay"},redirect:"error",signal:AbortSignal.timeout(10000)});
+   const identity=await fetch("https://api.github.com/user",{headers:{Authorization:`Bearer ${owner.githubToken}`,Accept:"application/vnd.github+json","User-Agent":"Boring-Notch-Dot-Relay"},redirect:"manual",signal:AbortSignal.timeout(10000)});
    if(identity.status===401||identity.status===403)throw new OAuthError("invalid_grant",{description:"GitHub access revoked"});
    if(!identity.ok)throw new OAuthError("temporarily_unavailable",{description:"Identity temporarily unavailable"});
    const user=object(await identity.json());if(String(user.id)!==OWNER_ID)throw new OAuthError("invalid_grant",{description:"Owner access revoked"});
@@ -90,6 +90,13 @@ export default {
   if(url.pathname==="/health"&&request.method==="GET")return json({service:"boring-notch-dot-relay",configured:configured(env),endToEndVerified:false});
   if(!configured(env))return json({error:"relay_not_configured"},503);
   if(url.origin!==env.RELAY_ORIGIN)return json({error:"invalid_origin"},421);
-  try{return await createOAuthProvider(env).fetch(request,env,ctx);}catch(error){return json({error:error instanceof RelayError?error.code:"request_failed"},error instanceof RelayError?error.status:400);}
+  try{return await createOAuthProvider(env).fetch(request,env,ctx);}catch(error){
+   if(error instanceof AuthorizationError){
+    const descriptions = ["This authorization was not started in this browser; start again", "This authorization belongs to a different browser session; start again"];
+    return json({error:descriptions.includes(error.description) ? "authorization_browser_binding_missing" : "authorization_expired_or_invalid"},400);
+   }
+   if(error instanceof RelayError)return json({error:error.code},error.status);
+   return json({error:"authorization_service_unavailable"},503);
+  }
  },
 } satisfies ExportedHandler<Env>;

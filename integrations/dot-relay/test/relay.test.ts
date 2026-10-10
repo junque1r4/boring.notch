@@ -58,10 +58,21 @@ async function prepareNativeAuthorization(){
  const challenge=b64(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(verifier)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=/g,"");
  const parameters=new URLSearchParams({client_id:client.client_id,redirect_uri:"boringnotch-agents://oauth/callback",response_type:"code",scope:"notch:read notch:send offline_access",resource:"https://relay.example.com",state:"fixture-client-state",code_challenge:challenge,code_challenge_method:"S256"});
  const consent=await requestLocal(`/authorize?${parameters}`);expect(consent.status).toBe(200);
+ expect(consent.headers.get("Content-Security-Policy")).toContain("form-action 'self' https://github.com;");
+ expect(consent.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
  const page=await consent.text();const handle=/name="handle" value="([^"]+)"/.exec(page)![1];
  return {clientId:client.client_id,verifier,handle,cookie:cookies(consent)};
 }
 describe("owner OAuth roundtrip fixtures",()=>{
+ it("rejects upstream token redirects without forwarding credentials",async()=>{
+  const prepared=await prepareNativeAuthorization();
+  const redirect=await requestLocal("/authorize",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded",Origin:"https://relay.example.com",Cookie:prepared.cookie},body:new URLSearchParams({handle:prepared.handle,decision:"allow"})});
+  const state=new URL(redirect.headers.get("Location")!).searchParams.get("state")!;
+  outbound.get("https://github.com").intercept({path:"/login/oauth/access_token",method:"POST"}).reply(302,"");
+  const callback=await requestLocal(`/callback?${new URLSearchParams({state,code:"fixture-github-code"})}`,{headers:{Cookie:cookies(redirect)}});
+  expect(callback.status).toBe(503);
+  expect(await callback.json()).toEqual({error:"github_token_redirect_rejected"});
+ });
  it("refuses forged consent without the browser binding",async()=>{const prepared=await prepareNativeAuthorization();const response=await requestLocal("/authorize",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded",Origin:"https://relay.example.com"},body:new URLSearchParams({handle:prepared.handle,decision:"allow"})});expect(response.status).toBe(400);});
  it("refuses cross-site consent posts even with a valid cookie",async()=>{const prepared=await prepareNativeAuthorization();const response=await requestLocal("/authorize",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded",Origin:"https://evil.example",Cookie:prepared.cookie},body:new URLSearchParams({handle:prepared.handle,decision:"allow"})});expect(response.status).toBe(403);});
  it("refuses a different GitHub owner after authenticated callback",async()=>{const prepared=await prepareNativeAuthorization();const redirect=await requestLocal("/authorize",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded",Origin:"https://relay.example.com",Cookie:prepared.cookie},body:new URLSearchParams({handle:prepared.handle,decision:"allow"})});expect(redirect.status).toBe(302);const state=new URL(redirect.headers.get("Location")!).searchParams.get("state")!;outbound.get("https://github.com").intercept({path:"/login/oauth/access_token",method:"POST"}).reply(200,{access_token:"fixture-owner-token"});outbound.get("https://api.github.com").intercept({path:"/user"}).reply(200,{id:1});const callback=await requestLocal(`/callback?${new URLSearchParams({state,code:"fixture-github-code"})}`,{headers:{Cookie:cookies(redirect)}});expect(callback.status).toBe(302);const final=new URL(callback.headers.get("Location")!);expect(final.searchParams.get("error")).toBe("access_denied");expect(final.searchParams.get("iss")).toBe("https://relay.example.com");});

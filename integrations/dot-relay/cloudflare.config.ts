@@ -11,13 +11,13 @@ export default defineConfig({
     exports: { DotRelay: exports.durableObject({ storage: "sqlite" }) },
     env: {
       RELAY: bindings.durableObject({ worker: "boring-notch-dot-relay", exportName: "DotRelay" }),
-      OAUTH_KV: bindings.kv(),
+      OAUTH_KV: bindings.kv({ id: "47ddd5b423f94ad485b8bfea2be1ce0a" }),
       RELAY_ORIGIN: bindings.text("https://boring-notch-dot-relay.ext-joao-junqueira.workers.dev"), // Set exact deployed origin after first health-only deployment.
       OWNER_GITHUB_ID: bindings.text("39351332"),
       CALLBACK_ORIGINS: bindings.text(""), // Exact verified public ChatGPT callback origins, comma-separated.
-      GITHUB_CLIENT_ID: bindings.text(""), // Replace with bindings.secret() after GitHub OAuth app registration.
-      GITHUB_CLIENT_SECRET: bindings.text(""), // Replace with bindings.secret(); never put credentials here.
-      RELAY_ENCRYPTION_KEY: bindings.text(""), // Replace with bindings.secret(); 32 random bytes, base64.
+      GITHUB_CLIENT_ID: bindings.secret(),
+      GITHUB_CLIENT_SECRET: bindings.secret(),
+      RELAY_ENCRYPTION_KEY: bindings.secret(), // 32 random bytes, base64; never commit the value.
     },
     observability: {
       enabled: true,

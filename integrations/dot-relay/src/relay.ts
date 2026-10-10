@@ -180,7 +180,7 @@ export class DotRelay extends DurableObject<Env> {
     if(sub.expires<=Date.now()||sub.owner.githubId!==this.env.OWNER_GITHUB_ID)return false;
     const grant=await this.env.OAUTH_KV.get(`grant:${sub.owner.githubId}:${sub.grantId}`);
     if(!grant)return false;
-    const response=await fetch("https://api.github.com/user",{headers:{Authorization:`Bearer ${sub.owner.githubToken}`,Accept:"application/vnd.github+json","User-Agent":"Boring-Notch-Dot-Relay"},redirect:"error",signal:AbortSignal.timeout(10000)});
+    const response=await fetch("https://api.github.com/user",{headers:{Authorization:`Bearer ${sub.owner.githubToken}`,Accept:"application/vnd.github+json","User-Agent":"Boring-Notch-Dot-Relay"},redirect:"manual",signal:AbortSignal.timeout(10000)});
     if(response.status===401||response.status===403)return false;
     if(!response.ok)throw new RelayError("identity_temporarily_unavailable",503);
     const user=object(await response.json());return String(user.id)===this.env.OWNER_GITHUB_ID;
