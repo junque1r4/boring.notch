@@ -18,6 +18,7 @@ actor CodexLogProvider: AgentSessionProvider {
         var modified: Date
         var size: Int
         var session: AgentSession?
+        var usage: [AgentUsageWindow]
         var partial: Data
     }
     private var cache: [URL: CachedLog] = [:]
@@ -45,27 +46,31 @@ actor CodexLogProvider: AgentSessionProvider {
         cache = cache.filter { active.contains($0.key) }
         var sessions: [AgentSession] = []
         var unreadable = 0
+        var usage: [AgentUsageWindow] = []
         for (url, modified, size) in candidates {
             if let cached = cache[url], cached.modified == modified, cached.size == size {
                 if let session = cached.session { sessions.append(session) }
+                usage += cached.usage
                 continue
             }
             do {
                 let handle = try FileHandle(forReadingFrom: url)
                 defer { try? handle.close() }
                 var session: AgentSession?
+                var windows: [AgentUsageWindow] = []
                 var bytes: Data
                 if let previous = cache[url], size > previous.size, size - previous.size <= 1_048_576 {
                     // Preserve the observed lifecycle across long turns. Read only
                     // appended data, including an unfinished line from last poll.
                     session = previous.session
+                    windows = previous.usage
                     try handle.seek(toOffset: UInt64(previous.size))
                     bytes = previous.partial
                     bytes.append(try handle.read(upToCount: 1_048_576) ?? Data())
                 } else {
                     let header = try handle.read(upToCount: 1_048_576) ?? Data()
                     let completeHeader = header.split(separator: 10, omittingEmptySubsequences: false).dropLast()
-                    for line in completeHeader { CodexLogReducer.reduce(line: Data(line), session: &session) }
+                    for line in completeHeader { CodexLogReducer.reduce(line: Data(line), session: &session, usage: &windows) }
                     // On first connection, inspect bounded head/tail observations.
                     // If a poll overflows the append budget, don't carry old state
                     // across the unobserved gap.
@@ -77,14 +82,15 @@ actor CodexLogProvider: AgentSessionProvider {
                 }
                 var lines = bytes.split(separator: 10, omittingEmptySubsequences: false)
                 let partial = lines.popLast().map(Data.init) ?? Data()
-                for line in lines { CodexLogReducer.reduce(line: Data(line), session: &session) }
-                cache[url] = CachedLog(modified: modified, size: size, session: session,
+                for line in lines { CodexLogReducer.reduce(line: Data(line), session: &session, usage: &windows) }
+                cache[url] = CachedLog(modified: modified, size: size, session: session, usage: windows,
                     partial: partial.count <= 1_048_576 ? partial : Data())
                 if let session { sessions.append(session) }
+                usage += windows
             } catch { unreadable += 1 }
         }
         return AgentSnapshot(sessions: sessions, diagnostic:
-            "Local logs • last 24 hours • up to 80 sessions\(unreadable > 0 ? " • some files unreadable" : "")\(visited > 20_000 ? " • scan limit reached" : "")")
+            "Local logs • last 24 hours • up to 80 sessions\(unreadable > 0 ? " • some files unreadable" : "")\(visited > 20_000 ? " • scan limit reached" : "")", usage: AgentUsageWindow.merge(usage.filter { $0.observedAt <= date.addingTimeInterval(30) }))
     }
 }
 

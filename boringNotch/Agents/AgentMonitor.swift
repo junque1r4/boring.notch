@@ -7,6 +7,8 @@ import UserNotifications
 final class AgentMonitor {
     static let shared = AgentMonitor()
     private(set) var sessions: [AgentSession] = []
+    private(set) var usage: [AgentUsageWindow] = []
+    private(set) var detectedApps: [DetectedAgentApp] = []
     private(set) var diagnostics: [String] = []
     private(set) var folderNames: [String: String] = [:]
     private(set) var latestAlert: AgentSession?
@@ -27,6 +29,7 @@ final class AgentMonitor {
         UNUserNotificationCenter.current().delegate = notifications
         restore("logs")
         restore("hooks")
+        restore("grok")
         restart()
     }
 
@@ -50,7 +53,8 @@ final class AgentMonitor {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
-        panel.message = kind == "logs"
+        panel.directoryURL = AgentDiscovery.suggestedFolder(kind)
+        panel.message = kind == "grok" ? "Choose Grok Bot’s sand-client-persistence folder. Only its weekly usage cache is read; conversation blobs and credentials are ignored." : kind == "logs"
             ? "Choose your Codex sessions folder (usually ~/.codex/sessions). Only lifecycle metadata is kept."
             : "Choose the notch-agent-status folder created by the optional Codex hook bridge."
         panel.prompt = "Monitor locally"
@@ -72,7 +76,11 @@ final class AgentMonitor {
     private func attach(_ url: URL, kind: String) {
         grants[kind] = url
         folderNames[kind] = url.lastPathComponent
-        providers[kind] = kind == "logs" ? CodexLogProvider(root: url) : CodexHookProvider(root: url)
+        switch kind {
+        case "logs": providers[kind] = CodexLogProvider(root: url)
+        case "grok": providers[kind] = GrokBotCacheProvider(root: url)
+        default: providers[kind] = CodexHookProvider(root: url)
+        }
     }
 
     private func detach(_ kind: String) {
@@ -91,10 +99,12 @@ final class AgentMonitor {
         generation += 1
         task?.cancel()
         sessions = []
+        usage = []
         latestAlert = nil
         refreshedAt = nil
         alerts = AgentAlertPolicy(startedAt: Date())
-        guard !providers.isEmpty else { diagnostics = ["Monitoring is off. Choose a folder to start."]; return }
+        detectedApps = AgentDiscovery.apps()
+        if providers.isEmpty { diagnostics = ["Monitoring is off. Connect a detected app to start."] }
         task = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
@@ -114,8 +124,10 @@ final class AgentMonitor {
             return snapshots
         }
         guard !Task.isCancelled, currentGeneration == generation else { return }
+        detectedApps = AgentDiscovery.apps()
         sessions = AgentSessionMerge.merge(snapshots)
-        diagnostics = snapshots.map(\.diagnostic).sorted()
+        usage = AgentUsageWindow.merge(snapshots.flatMap(\.usage))
+        diagnostics = snapshots.isEmpty ? ["Monitoring is off. Connect a detected app to start."] : snapshots.map(\.diagnostic).sorted()
         refreshedAt = date
         let transitions = alerts.transitions(sessions, now: date)
         if let session = transitions.first { latestAlert = session }
@@ -145,6 +157,16 @@ final class AgentMonitor {
             if error != nil {
                 Task { @MainActor in AgentMonitor.shared.navigationMessage = "macOS could not deliver an alert. In-app alerts remain available." }
             }
+        }
+    }
+
+    func openApp(_ providerID: String) {
+        guard let app = detectedApps.first(where: { $0.id == providerID }), let url = app.url else {
+            navigationMessage = "App not detected. Install or open it, then refresh discovery."
+            return
+        }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+            if error != nil { Task { @MainActor in AgentMonitor.shared.navigationMessage = "Could not open the detected app." } }
         }
     }
 

@@ -12,9 +12,33 @@ enum CodexLogReducer {
     }
 
     static func reduce(line: Data, session: inout AgentSession?) {
+        var ignored: [AgentUsageWindow] = []
+        reduce(line: line, session: &session, usage: &ignored)
+    }
+
+    static func reduce(line: Data, session: inout AgentSession?, usage: inout [AgentUsageWindow]) {
         guard let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let type = record["type"] as? String,
               let payload = record["payload"] as? [String: Any] else { return }
+        if type == "event_msg", payload["type"] as? String == "token_count",
+           let date = timestamp(record["timestamp"]),
+           let limits = payload["rate_limits"] as? [String: Any],
+           let limitID = limits["limit_id"] as? String, limitID == "codex" {
+            var windows: [AgentUsageWindow] = []
+            for key in ["primary", "secondary"] {
+                guard let window = limits[key] as? [String: Any],
+                      let percent = AgentUsageWindow.validPercent(window["used_percent"]),
+                      let minutes = window["window_minutes"] as? Int, minutes > 0, minutes <= 525_600,
+                      let reset = window["resets_at"] as? Double, reset.isFinite, (946_684_800...4_102_444_800).contains(reset) else { continue }
+                let label = minutes == 10080 ? "Weekly" : minutes == 300 ? "5-hour"
+                    : minutes == 1440 ? "Daily" : "\(minutes) min"
+                windows.append(AgentUsageWindow(id: "codex.\(key)", providerID: "codex", label: label,
+                    usedPercent: percent, resetsAt: Date(timeIntervalSince1970: reset), observedAt: date,
+                    expiresAt: nil, source: "Local log"))
+            }
+            // A new reading replaces both windows; absent secondary is not old quota.
+            if !windows.isEmpty, usage.map(\.observedAt).max().map({ $0 <= date }) ?? true { usage = windows }
+        }
         if type == "session_meta" {
             guard let id = payload["id"] as? String, UUID(uuidString: id) != nil else { return }
             let origin = (payload["originator"] as? String ?? "").lowercased()

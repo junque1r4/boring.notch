@@ -36,6 +36,7 @@ struct AgentSession: Identifiable, Equatable, Sendable {
 struct AgentSnapshot: Sendable {
     var sessions: [AgentSession]
     var diagnostic: String
+    var usage: [AgentUsageWindow] = []
 }
 
 /// Providers only observe. Control capabilities must be added through a separate,
