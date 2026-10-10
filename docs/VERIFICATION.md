@@ -77,8 +77,13 @@ The personal relay is deployed and reports configured:true. Live OAuth discovery
 and a bounded protocol consent-to-GitHub redirect check succeeded. These are not
 a real Dot exchange. Native owner sign-in and the private ChatGPT plugin
 authentication completed successfully in Safari; the notch shows Relay connected.
-The plugin exposes both tools and notch.message.created. A real Dot subscription
-and notch reply remain under validation. A native UI scroll check moved the Agents
+The plugin exposes both tools and notch.message.created. The authenticated readiness tool was deployed and verified in the refreshed
+plugin catalog. The actual Dot reported a repeated task-service failure while
+creating its subscription, so no active subscription or real notch reply was
+confirmed. Send remains disabled, and the real test text is an unsent local draft.
+Native Shift–Return inserted a newline; Escape dismissed the panel, and the
+multiline draft survived reopening. Plugin persistent offline access was not
+granted; one-hour plugin access and reconnect recovery remain acceptance gaps. A native UI scroll check moved the Agents
 scrollbar from 0 to 0.2427 and back to 0 without closing the notch.
 Physical trackpad/momentum, external displays and screen
 lock remain direct-Mac acceptance checks. Explicit callback DNS/IP connection
