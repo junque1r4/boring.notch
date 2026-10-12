@@ -121,9 +121,18 @@ enum DotOAuthProtocol {
     static func refresh(configuration: DotRelayConfiguration, credentials: DotOAuthCredentials,
         refreshToken: String, http: any DotHTTPClient) async throws -> DotOAuthCredentials {
         let metadata = try await metadata(configuration: configuration, http: http)
-        return try await token(configuration: configuration, endpoint: metadata.tokenEndpoint,
-            values: ["grant_type": "refresh_token", "refresh_token": refreshToken], clientID: credentials.clientID,
-            previousRefreshToken: refreshToken, http: http)
+        do {
+            return try await token(configuration: configuration, endpoint: metadata.tokenEndpoint,
+                values: ["grant_type": "refresh_token", "refresh_token": refreshToken], clientID: credentials.clientID,
+                previousRefreshToken: refreshToken, http: http)
+        } catch let error as DotChatError {
+            // OAuth invalid_grant means this saved authorization can no longer
+            // refresh; stop polling and ask the owner to connect again.
+            if case .httpFailure(_, let errorCode) = error, errorCode == "invalid_grant" {
+                throw DotChatError.unauthorized
+            }
+            throw error
+        }
     }
     static func revoke(configuration: DotRelayConfiguration, credentials: DotOAuthCredentials, http: any DotHTTPClient) async throws {
         let metadata = try await metadata(configuration: configuration, http: http)

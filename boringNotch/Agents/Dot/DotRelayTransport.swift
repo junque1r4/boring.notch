@@ -8,6 +8,8 @@ protocol DotHTTPClient: Sendable {
 /// Ephemeral sessions retain neither cookies nor response bodies in a disk cache.
 /// Redirects are rejected so bearer credentials cannot move to another origin.
 final class DotURLSessionClient: NSObject, DotHTTPClient, URLSessionTaskDelegate, @unchecked Sendable {
+    private static let safeHTTPErrorCodes: Set<String> = ["invalid_grant", "insufficient_scope", "temporarily_unavailable"]
+
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
@@ -22,12 +24,39 @@ final class DotURLSessionClient: NSObject, DotHTTPClient, URLSessionTaskDelegate
         newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
     }
+
+    /// Retains only a recognized error code; server descriptions are discarded.
+    static func recognizedErrorCode(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = object["error"] as? String,
+              Self.safeHTTPErrorCodes.contains(code) else { return nil }
+        return code
+    }
+
+    /// Reads only a small bounded error body and retains only a recognized code.
+    /// Server messages and response content are never surfaced or logged.
+    private func recognizedErrorCode(from bytes: URLSession.AsyncBytes) async -> String? {
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                if data.count >= 8_192 { break }
+                data.append(byte)
+            }
+        } catch {
+            return nil
+        }
+        return Self.recognizedErrorCode(from: data)
+    }
+
     func request(_ request: URLRequest, maximumBytes: Int) async throws -> Data {
         do {
             let (bytes, response) = try await session.bytes(for: request)
             guard let http = response as? HTTPURLResponse else { throw DotChatError.invalidResponse }
             if http.statusCode == 401 { throw DotChatError.unauthorized }
-            guard (200...299).contains(http.statusCode) else { throw DotChatError.rejected }
+            guard (200...299).contains(http.statusCode) else {
+                let errorCode = await recognizedErrorCode(from: bytes)
+                throw DotChatError.httpFailure(statusCode: http.statusCode, errorCode: errorCode)
+            }
             guard response.expectedContentLength <= maximumBytes else { throw DotChatError.responseTooLarge }
             var data = Data()
             for try await byte in bytes {

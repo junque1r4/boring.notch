@@ -30,7 +30,9 @@ private final class DotTestArchive: DotArchiveStorage, @unchecked Sendable {
 private actor DotTestTransport: DotChatTransporting {
     private(set) var sent: [UUID] = []
     private var failures: Int
-    init(failures: Int = 0) { self.failures = failures }
+    private let eventError: DotChatError?
+    private(set) var eventAttempts = 0
+    init(failures: Int = 0, eventError: DotChatError? = nil) { self.failures = failures; self.eventError = eventError }
     func configure(_ configuration: DotRelayConfiguration) -> Bool { true }
     func install(_ credentials: DotOAuthCredentials, configuration: DotRelayConfiguration) {}
     func send(messageID: UUID, text: String) throws -> DotRelayReceipt {
@@ -38,7 +40,11 @@ private actor DotTestTransport: DotChatTransporting {
         if failures > 0 { failures -= 1; throw DotChatError.unavailable }
         return DotRelayReceipt(messageId: messageID, status: .queued, sequence: 1, subscriptionActive: true)
     }
-    func events(after sequence: Int64) -> DotRelayEventBatch { DotRelayEventBatch(events: [], cursor: sequence, subscriptionActive: true) }
+    func events(after sequence: Int64) throws -> DotRelayEventBatch {
+        eventAttempts += 1
+        if let eventError { throw eventError }
+        return DotRelayEventBatch(events: [], cursor: sequence, subscriptionActive: true)
+    }
     func disconnect() {}
 }
 
@@ -51,10 +57,13 @@ private actor DotTestTransport: DotChatTransporting {
 private actor DotTestHTTP: DotHTTPClient {
     private(set) var requests: [URLRequest] = []
     let responses: [String: Data]
-    init(responses: [String: Data]) { self.responses = responses }
+    let errors: [String: DotChatError]
+    init(responses: [String: Data], errors: [String: DotChatError] = [:]) { self.responses = responses; self.errors = errors }
     func request(_ request: URLRequest, maximumBytes: Int) throws -> Data {
         requests.append(request)
-        guard let path = request.url?.path, let data = responses[path], data.count <= maximumBytes else { throw DotChatError.invalidResponse }
+        guard let path = request.url?.path else { throw DotChatError.invalidResponse }
+        if let error = errors[path] { throw error }
+        guard let data = responses[path], data.count <= maximumBytes else { throw DotChatError.invalidResponse }
         return data
     }
 }
@@ -269,5 +278,56 @@ private actor DotTestHTTP: DotHTTPClient {
         XCTAssertEqual(payload["messageId"]?.lowercased(), id.uuidString.lowercased())
         XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Authorization"), "Bearer fixture-token")
         XCTAssertEqual(requests[1].url?.query, "after=1")
+    }
+
+    func testRefreshInvalidGrantRequiresReconnectAndDoesNotExposeServerBody() async throws {
+        let metadata = Data("""
+        {"issuer":"\(endpoint)","authorization_endpoint":"\(endpoint)/authorize","token_endpoint":"\(endpoint)/oauth/token","registration_endpoint":"\(endpoint)/oauth/register","revocation_endpoint":"\(endpoint)/oauth/revoke","code_challenge_methods_supported":["S256"],"authorization_response_iss_parameter_supported":true}
+        """.utf8)
+        let http = DotTestHTTP(responses: ["/.well-known/oauth-authorization-server": metadata],
+            errors: ["/oauth/token": .httpFailure(statusCode: 400, errorCode: "invalid_grant")])
+        let credentials = DotOAuthCredentials(clientID: "public", accessToken: "test-token", refreshToken: "refresh-fixture", expiresAt: Date())
+
+        do {
+            _ = try await DotOAuthProtocol.refresh(configuration: DotRelayConfiguration(endpoint: endpoint),
+                credentials: credentials, refreshToken: "refresh-fixture", http: http)
+            XCTFail("Invalid refresh grant must require a new authorization")
+        } catch let error as DotChatError {
+            XCTAssertEqual(error, .unauthorized)
+            XCTAssertEqual(error.localizedDescription, "Sign in again to reconnect the private relay.")
+        } catch {
+            XCTFail("Unexpected refresh failure category")
+        }
+    }
+
+    func testHTTPErrorParsingRetainsOnlyAllowlistedCodes() {
+        let invalidGrant = Data("{\"error\":\"invalid_grant\",\"error_description\":\"private provider detail\"}".utf8)
+        let arbitraryError = Data("{\"error\":\"secret-provider-diagnostic\",\"message\":\"private\"}".utf8)
+        XCTAssertEqual(DotURLSessionClient.recognizedErrorCode(from: invalidGrant), "invalid_grant")
+        XCTAssertNil(DotURLSessionClient.recognizedErrorCode(from: arbitraryError))
+    }
+
+    func testPermanentPollFailureStopsRetryingWithActionableSanitizedMessage() async throws {
+        let value = try archive()
+        let transport = DotTestTransport(eventError: .httpFailure(statusCode: 403, errorCode: "insufficient_scope"))
+        let store = DotChatStore(storage: DotTestArchive(value), transport: transport, authorization: DotTestOAuth(), autoResume: false)
+        await store.resumeSavedConnection()
+        for _ in 0..<100 where store.connectionState != .unavailable { await Task.yield() }
+
+        XCTAssertEqual(store.connectionState, .unavailable)
+        XCTAssertFalse(store.subscriptionActive)
+        XCTAssertEqual(store.errorMessage, "The private relay denied access. Reconnect Dot to refresh its permissions.")
+        let attempts = await transport.eventAttempts
+        XCTAssertEqual(attempts, 1)
+    }
+
+    func testNetworkRateLimitAndServerFailuresRemainRetryable() {
+        XCTAssertTrue(DotChatError.unavailable.isRetryable)
+        for status in [408, 425, 429, 500, 503, 599] {
+            XCTAssertTrue(DotChatError.httpFailure(statusCode: status, errorCode: nil).isRetryable, "HTTP \(status)")
+        }
+        for status in [400, 401, 403, 404, 421] {
+            XCTAssertFalse(DotChatError.httpFailure(statusCode: status, errorCode: nil).isRetryable, "HTTP \(status)")
+        }
     }
 }

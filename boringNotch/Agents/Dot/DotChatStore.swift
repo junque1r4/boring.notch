@@ -163,7 +163,8 @@ final class DotChatStore {
             // through events; never create another ID or automatically POST again.
             errorMessage = "Receipt unconfirmed. The app will check the relay without sending this message again."
             if error as? DotChatError == .unauthorized { connectionState = .signedOut }
-            else if error as? DotChatError == .rejected || error as? DotChatError == .draftTooLarge {
+            else if let dotError = error as? DotChatError,
+                    (dotError == .draftTooLarge || isPermanentHTTPFailure(dotError)) {
                 updateDelivery(id: id, value: .failed)
                 pendingMessageID = nil
                 errorMessage = safeDescription(error)
@@ -332,6 +333,12 @@ final class DotChatStore {
                         self.errorMessage = self.safeDescription(error)
                         return
                     }
+                    if let dotError = error as? DotChatError, !dotError.isRetryable {
+                        self.connectionState = .unavailable
+                        self.subscriptionActive = false
+                        self.errorMessage = self.safeDescription(dotError)
+                        return
+                    }
                     failures = min(failures + 1, 5)
                     self.connectionState = .reconnecting
                     self.errorMessage = "Checking the private relay again. Pending messages will not be sent twice."
@@ -343,5 +350,10 @@ final class DotChatStore {
     }
     private func safeDescription(_ error: Error) -> String {
         (error as? DotChatError)?.localizedDescription ?? DotChatError.unavailable.localizedDescription
+    }
+
+    private func isPermanentHTTPFailure(_ error: DotChatError) -> Bool {
+        guard case .httpFailure = error else { return false }
+        return !error.isRetryable
     }
 }

@@ -60,9 +60,23 @@ enum DotConnectionState: Equatable, Sendable {
 }
 
 enum DotChatError: Error, Equatable, LocalizedError {
-    case invalidEndpoint, invalidResponse, responseTooLarge, unauthorized, rejected, unavailable
+    case invalidEndpoint, invalidResponse, responseTooLarge, unauthorized, unavailable
+    case httpFailure(statusCode: Int, errorCode: String?)
     case invalidAuthorization, authorizationCancelled, missingEncryptionKey, persistenceUnavailable
     case pendingMessage, endpointHasHistory, draftTooLarge
+
+    /// Only network failures and server-directed throttling/transient statuses
+    /// should keep the poller retrying. Other HTTP failures need user action.
+    var isRetryable: Bool {
+        switch self {
+        case .unavailable:
+            return true
+        case .httpFailure(let statusCode, _):
+            return statusCode == 408 || statusCode == 425 || statusCode == 429 || (500...599).contains(statusCode)
+        default:
+            return false
+        }
+    }
 
     var errorDescription: String? {
         switch self {
@@ -70,8 +84,18 @@ enum DotChatError: Error, Equatable, LocalizedError {
         case .invalidResponse: return "The relay returned an unsupported response."
         case .responseTooLarge: return "The relay response exceeded the local safety limit."
         case .unauthorized: return "Sign in again to reconnect the private relay."
-        case .rejected: return "The relay rejected this request."
         case .unavailable: return "The private relay could not be reached."
+        case .httpFailure(let statusCode, let errorCode):
+            if errorCode == "insufficient_scope" || statusCode == 403 {
+                return "The private relay denied access. Reconnect Dot to refresh its permissions."
+            }
+            if statusCode == 404 || statusCode == 421 {
+                return "The private relay endpoint could not be found. Check the relay address."
+            }
+            if isRetryable {
+                return "The private relay is temporarily unavailable (HTTP \(statusCode)). Retrying."
+            }
+            return "The private relay returned an error (HTTP \(statusCode)). Check the connection and reconnect."
         case .invalidAuthorization: return "The private relay’s authorization response could not be verified."
         case .authorizationCancelled: return "Connection was cancelled."
         case .missingEncryptionKey: return "The encrypted history key is unavailable. Local history was kept intact."
