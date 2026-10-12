@@ -3,8 +3,8 @@ import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import type { Env,OwnerProps } from "../src/env";
 import type { DotRelay } from "../src/relay";
-import { contextToolResult } from "../src/images";
-import { decrypt,OWNER_ID,RETENTION_MS } from "../src/security";
+import { contextToolResult,MESSAGE_BODY_BYTES } from "../src/images";
+import { decrypt,OWNER_ID,RETENTION_MS,readJSON } from "../src/security";
 
 const owner:OwnerProps={githubId:OWNER_ID,githubToken:"test-only-upstream"};
 const bindings=env as Env;
@@ -28,14 +28,14 @@ function base64FromBytes(value:Uint8Array):string{
  for(let offset=0;offset<value.length;offset+=16384)chunks.push(String.fromCharCode(...value.subarray(offset,offset+16384)));
  return btoa(chunks.join(""));
 }
-function jpegOfExactLength(length:number):string{
+function jpegOfExactLength(length:number,padding=0):string{
  const source=bytesFromBase64(TINY_JPEG),remaining=length-source.length;
  const segmentCount=Math.ceil(remaining/65537),payloadBytes=remaining-segmentCount*4;
  const parts:Uint8Array[]=[source.subarray(0,2)];let payloadLeft=payloadBytes;
  for(let index=0;index<segmentCount;index++){
   const payloadLength=Math.ceil(payloadLeft/(segmentCount-index));payloadLeft-=payloadLength;
   if(payloadLength>65533)throw new Error("JPEG comment segment exceeded its format limit");
-  const segment=new Uint8Array(payloadLength+4);segment[0]=0xff;segment[1]=0xfe;segment[2]=(payloadLength+2)>>8;segment[3]=(payloadLength+2)&0xff;parts.push(segment);
+  const segment=new Uint8Array(payloadLength+4).fill(padding);segment[0]=0xff;segment[1]=0xfe;segment[2]=(payloadLength+2)>>8;segment[3]=(payloadLength+2)&0xff;parts.push(segment);
  }
  parts.push(source.subarray(2));
  const result=new Uint8Array(length);let offset=0;
@@ -84,10 +84,15 @@ describe("native image attachments",()=>{
  });
 
  it("stores image payloads encrypted and supports four maximum-sized JPEGs without stack-sized conversions",async()=>{
-  const relay=stub(),data=jpegOfExactLength(262144),attachments=Array.from({length:4},()=>image({data}));
+  const relay=stub(),data=jpegOfExactLength(262144,255),attachments=Array.from({length:4},()=>image({data}));
   expect(bytesFromBase64(data)).toHaveLength(262144);
-  const input=message("large fixture",attachments);
-  await expect(relay.accept(owner,input)).resolves.toMatchObject({status:"queued"});
+  const input=message("\u0000".repeat(8192),attachments);
+  const body=JSON.stringify(input).replaceAll("/","\\/");
+  expect(body.length).toBeGreaterThan(1_450_000);
+  const parsed=await readJSON(new Request("https://relay.example.com/v1/messages",{
+   method:"POST",headers:{"Content-Type":"application/json"},body
+  }),MESSAGE_BODY_BYTES);
+  await expect(relay.accept(owner,parsed)).resolves.toMatchObject({status:"queued"});
   const stored=await runInDurableObject(relay,async(_instance:DotRelay,state)=>{
    const cipher=state.storage.sql.exec<{cipher:string}>("SELECT cipher FROM messages WHERE id=?",input.messageId).one().cipher;
    return {cipher,payload:await decrypt<{text:string;attachments:Attachment[]}>(cipher,bindings.RELAY_ENCRYPTION_KEY,`message:${input.messageId}`)};

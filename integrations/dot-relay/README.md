@@ -80,7 +80,8 @@ each at most 256 KiB decoded, with dimensions up to 1600 pixels. Empty text is
 accepted only with an image. Native imports normalize the original file before
 submission; the relay verifies bounded canonical base64, JPEG frame dimensions,
 MIME, IDs and field names. It does not claim to be a full JPEG decoder.
-Requests are stream-bounded at 1,450,000 bytes; encrypted rows fit below the
+Requests are stream-bounded at 2,900,000 bytes to allow legal JSON escaping;
+validated canonical payloads are below 1,450,000 bytes and encrypted rows fit below the
 SQLite 2 MB row limit. Image bytes stay encrypted with the message and share its
 seven-day deletion lifecycle. No public image URLs or new storage bindings are
 created. Text-only clients remain compatible.

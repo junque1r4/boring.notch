@@ -4,9 +4,10 @@ import { object, RelayError, uuid } from "./security";
 export const IMAGE_COUNT = 4;
 export const IMAGE_BYTES = 262144;
 export const IMAGE_EDGE = 1600;
-// Four base64 images plus bounded text and JSON metadata. Ciphertext stays
-// below the SQLite Durable Object's 2 MB row limit after encryption/base64.
-export const MESSAGE_BODY_BYTES = 1_450_000;
+// Allow legal JSON slash/control-character escaping on the wire. After parsing,
+// the four validated images plus bounded text form a canonical payload below
+// 1.45 MB; its encrypted/base64 form fits the SQLite 2 MB row limit.
+export const MESSAGE_BODY_BYTES = 2_900_000;
 export interface ChatImage { id:string; mimeType:"image/jpeg"; data:string; width:number; height:number; }
 export interface ContextMessage {
   messageId:string; role:"user"|"assistant"; text:string; createdAt:string; replyId?:string;

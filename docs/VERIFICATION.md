@@ -267,7 +267,8 @@ Verification for this change:
 
 - Universal local Release build succeeded with the existing stable certificate;
   deep/strict signature verification passed. The rebuilt app reopened existing
-  history and relay credentials without a Keychain prompt.
+  history and relay credentials without a Keychain prompt. A final rebuild included
+  all committed persistence fixes; the existing image and reply survived that restart.
 - 43 focused hosted macOS tests passed: Dot store/transport, image normalization
   and legacy archive decoding, image-only send/retry/persistence failure,
   malformed inputs, regular-file checks, idle-poll persistence, notch sizing,
@@ -278,7 +279,7 @@ Verification for this change:
   metadata/data, duplicate and changed-image IDs, owner authorization, encrypted
   storage and expiry, target-only image retrieval, and proper MCP image blocks.
 - `cf deploy --dry-run` passed, then the existing personal relay was updated to
-  version `6460184e-4831-41d6-a404-fd5037acbeed`. Existing secrets, OAuth scopes,
+  version `b9ca4f21-d82c-4718-96fd-a5ead158ea76` (including legal native JSON escaping at the request boundary). Existing secrets, OAuth scopes,
   callback allowlist, Durable Object and OAuth KV bindings were preserved.
 - On the Mac, the + button opened the image picker without dismissing Dot;
   selecting a synthetic PNG showed its removable preview in the shared composer.
