@@ -51,3 +51,15 @@ See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.
   diagnostics; pinned the verified OpenAI callback origin and activated the
   actual Dot subscription.
 - Preserved original Home/Shelf dimensions and media behavior.
+
+## 12 October 2026 — Chat polish and latency analysis
+
+- Added local date separators, per-message times, compact delivery/reply ticks,
+  original Dot avatars on replies, aligned bubbles and native Markdown formatting.
+- Removed composer byte counts and keyboard instruction text; retained keyboard
+  behavior, privacy bounds and accessible delivery explanations.
+- Added per-window pinning that survives outside clicks; explicit close, Escape,
+  tab changes and screen lock still clear the pin. Home/Shelf behavior is preserved.
+- Investigated response latency and streamlined the existing actual-Dot task's
+  routine prompt. The platform's asynchronous dispatch remains a measured limit.
+- Searched for original Dot animations; no complete distributable bundle found.

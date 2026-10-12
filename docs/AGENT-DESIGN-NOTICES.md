@@ -40,3 +40,14 @@ tracing, or generic triangle was substituted. SHA-256:
 `03e327aaa152e333293271f20cf1617ed20b1438ddbe8cba8c6509d7160460fd`.
 The export's conversations and other page resources are not included. ChatGPT
 and Dot names identify the integration; this fork is not endorsed by OpenAI.
+
+## Dot animation search (12 October 2026)
+
+The owner's exported page assets include static Dot SVG components and the
+original personal PNG. No complete original Dot animation bundle was found in
+those resources or the installed ChatGPT app resources. The separately shipped
+Codex pet sprite renderer is a different asset family and was not substituted.
+[Official Dot documentation](https://learn.chatgpt.com/docs/dots) describes
+appearance customization but does not supply an animation asset kit. This build
+keeps the original personal avatar; it does not claim to implement all native
+Dot mascot animations.

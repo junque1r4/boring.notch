@@ -144,3 +144,26 @@ momentum, external displays, screen lock and complete notification/focus/IME
 regression behavior. This remains a local development build, not a
 Developer ID signed/notarized public release. Existing callback TLS pinning and
 upstream helper/framework boundaries documented above remain.
+
+## 12 October 2026 — Chat polish and latency benchmark
+
+- 143 hosted macOS tests passed, zero failures, including pin lifecycle, Home
+  isolation, Markdown block parsing and unsafe-link removal. Evidence:
+  `work/DotPolishVerifiedTests-20261012.xcresult` and
+  `work/dot-polish-tests-verified.log` in the parent delivery workspace.
+- Universal local Release rebuilt successfully; codesign verification passed.
+- Real automatic reply after the task-prompt cleanup: 111.680 seconds from relay
+  creation to stored response. Callback acceptance took 0.985 seconds; actual Dot
+  reported a wake about 64 seconds after callback acceptance. A direct native-Dot
+  fixed-text baseline was observed complete within 18.5 seconds. Native parity
+  remains unmet. Full evidence and interpretation: [DOT-LATENCY.md](DOT-LATENCY.md).
+- On the Mac, verified dated message grouping, reply avatars, times, double reply
+  ticks, formatted numbered lists, removed byte/keyboard hints and Return send.
+  Pinned chat remained open after clicking Safari. Escape explicitly dismissed
+  it and reopening showed the pin cleared. Scrolling to the first and last
+  messages left the chat open. Pending/reply content survived reopening.
+- No complete original Dot animation bundle was found. The original personal
+  avatar remains unchanged; Codex pet animations were not substituted.
+- Screen lock, multiple displays, physical trackpad momentum and full IME/focus
+  regression remain the previously documented live-hardware limits. Pinning does
+  not override explicit close/tab selection or screen lock.
