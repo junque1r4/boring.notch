@@ -64,8 +64,13 @@ circles and one yellow triangle. The question does not state the answer.
 - Safari image test: attachment visibly appeared in the conversation; Dot
   replied by 24.471 seconds that the image content was not included. This is
   an unsuccessful vision test, despite successful visible attachment upload.
-  The prompt prohibited tools, which may have prevented Dot from inspecting
-  the attachment; a matched retry allowing ordinary image inspection is needed.
+  The prompt prohibited tools, so this was a flawed image-comprehension baseline.
+- Safari corrected image follow-up allowed normal image-reading tools and
+  referenced the same visible attachment. Dot correctly answered `6713` and
+  `two blue circles`. Only an inspection acknowledgement was present at 30.582
+  seconds; the correct answer was observed by 64.786 seconds. This is a follow-up
+  using an existing image, not a fresh matched upload benchmark. Both the failed
+  restricted prompt and successful follow-up are retained as evidence.
 - Offline input check: the owner confirmed typing works. Live accessibility
   observations then verified text entry, Tab navigation through all three fields,
   input after a Website/Notch chat mode switch, and retained field text and scroll
