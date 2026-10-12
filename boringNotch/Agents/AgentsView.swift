@@ -1,6 +1,6 @@
 // Modified 2026-10-10. SPDX-License-Identifier: GPL-3.0-only
-// Usage-ring layout inspired by CodeNotch (MIT); dense session list inspired by
-// Notchi (GPL-3.0). Original SwiftUI implementation; see docs/AGENT-DESIGN-NOTICES.md.
+// Dense session list inspired by Notchi (GPL-3.0). Original SwiftUI implementation;
+// see docs/AGENT-DESIGN-NOTICES.md.
 import SwiftUI
 
 extension AgentState {

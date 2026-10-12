@@ -15,6 +15,15 @@ import SwiftUI
 
     func dismiss(ifOwnedBy _: BoringViewModel) {}
     func dismiss(restoreFocus _: Bool = true) {}
+
+    /// Preserved for existing geometry tests and callers; no panel is created.
+    static func frame(parent: NSRect, visible: NSRect) -> NSRect {
+        let width = min(560, max(0, visible.width - 16))
+        let height = min(420, max(0, visible.height - 16))
+        let x = min(max(parent.midX - width / 2, visible.minX + 8), visible.maxX - width - 8)
+        let y = min(max(parent.minY - height + 4, visible.minY + 8), visible.maxY - height - 8)
+        return NSRect(x: x, y: y, width: width, height: height)
+    }
 }
 
 /// Kept until all existing views stop needing their owning notch window.
