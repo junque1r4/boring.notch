@@ -13,14 +13,23 @@ if [ -e "$task_scheme_path" ]; then
 fi
 trap 'rm -f "$task_scheme_path"' EXIT HUP INT TERM
 python3 - "$task_repo_root" "$task_scheme_path" <<'PY'
-import pathlib,sys
+import pathlib,sys,xml.etree.ElementTree as ET
 root=pathlib.Path(sys.argv[1])
 s=(root/'boringNotch.xcodeproj/xcshareddata/xcschemes/boringNotch.xcscheme').read_text()
 s=s.replace('selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB"','selectedDebuggerIdentifier=""')
 s=s.replace('selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB"','selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.PosixSpawn"')
 for tag in ['TestAction','LaunchAction']:
     s=s.replace('<'+tag+' ', '<'+tag+' disableMainThreadChecker="YES" disableThreadPerformanceChecker="YES" ')
-pathlib.Path(sys.argv[2]).write_text(s)
+scheme=ET.fromstring(s)
+test=scheme.find('TestAction')
+test.set('shouldUseLaunchSchemeArgsEnv', 'NO')
+environment=test.find('EnvironmentVariables')
+if environment is None:
+    environment=ET.SubElement(test, 'EnvironmentVariables')
+ET.SubElement(environment, 'EnvironmentVariable', {
+    'key':'BORING_NOTCH_TEST_HOST', 'value':'1', 'isEnabled':'YES'
+})
+pathlib.Path(sys.argv[2]).write_text(ET.tostring(scheme, encoding='unicode'))
 PY
 xcodebuild -project "$task_repo_root/boringNotch.xcodeproj" -scheme AgentsLocalValidation \
   -configuration Debug -destination 'platform=macOS' -derivedDataPath "$task_build_dir" \

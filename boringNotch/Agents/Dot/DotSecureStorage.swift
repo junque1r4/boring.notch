@@ -18,6 +18,9 @@ final class DotKeychainStorage: DotSecretStorage, @unchecked Sendable {
          kSecAttrService as String: service, kSecAttrAccount as String: account]
     }
     func read(_ account: String) throws -> Data? {
+        // Tests inject in-memory secret storage. Fail before Security.framework
+        // if a hosted test accidentally reaches the production implementation.
+        guard BoringAppExecution.usesLiveDotStorage else { throw DotChatError.persistenceUnavailable }
         var attributes = query(account)
         attributes[kSecReturnData as String] = true
         attributes[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -28,6 +31,7 @@ final class DotKeychainStorage: DotSecretStorage, @unchecked Sendable {
         return data
     }
     func write(_ data: Data, account: String) throws {
+        guard BoringAppExecution.usesLiveDotStorage else { throw DotChatError.persistenceUnavailable }
         var attributes = query(account)
         attributes[kSecValueData as String] = data
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
@@ -38,6 +42,7 @@ final class DotKeychainStorage: DotSecretStorage, @unchecked Sendable {
         } else if status != errSecSuccess { throw DotChatError.persistenceUnavailable }
     }
     func remove(_ account: String) throws {
+        guard BoringAppExecution.usesLiveDotStorage else { throw DotChatError.persistenceUnavailable }
         let status = SecItemDelete(query(account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw DotChatError.persistenceUnavailable }
     }
@@ -58,6 +63,13 @@ final class DotEncryptedArchiveStorage: DotArchiveStorage, @unchecked Sendable {
         self.secrets = secrets
     }
     static func standard() -> DotEncryptedArchiveStorage {
+        guard BoringAppExecution.usesLiveDotStorage else {
+            // No production archive is read by unit tests or the offline input
+            // diagnostic. Keychain access is also rejected above.
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("Notch-Isolated-\(ProcessInfo.processInfo.processIdentifier)")
+            return DotEncryptedArchiveStorage(url: directory.appendingPathComponent("history.aesgcm"))
+        }
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("BoringNotchAgents/Dot", isDirectory: true)
         return DotEncryptedArchiveStorage(url: directory.appendingPathComponent("history.aesgcm"))

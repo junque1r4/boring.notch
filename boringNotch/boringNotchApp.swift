@@ -65,6 +65,7 @@ struct DynamicNotchApp: App {
         // Initialize the settings window controller with the updater controller
         SettingsWindowController.shared.setUpdaterController(updaterController)
 
+        guard !BoringAppExecution.isTestHost else { return }
         Task { @MainActor in
             let sourceURL = Bundle.main.bundleURL
             if let destinationURL = LegacyAppBundleMigration.destinationURL(for: sourceURL) {
@@ -176,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        guard !BoringAppExecution.isTestHost else { return }
         if LegacyAppBundleMigration.isRelaunching { return }
 
         // Flush debounced shelf persistence to avoid losing recent changes
@@ -217,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !BoringAppExecution.isTestHost else { return }
         SettingsWindowController.shared.setCamera(camera)
         migrateDisplayModeIfNeeded()
 
