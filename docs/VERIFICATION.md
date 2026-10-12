@@ -11,8 +11,8 @@ installed Codex CLI 0.144.6 and Codex Desktop 26.1007.21159.
 | --- | --- |
 | Original feature preservation | Baseline app built before edits; all 102 inherited app tests pass. Home, Shelf, media controls and battery UI remain present. Live now-playing appeared in the notch. Full camera/calendar/notification/OSD and hardware regression coverage is not claimed. |
 | Agents tab | Native UI inspected and visually checked in the expanded notch; Home, Shelf and Agents buttons accessible. Agent Center also opens from the app menu and ⇧⌘A. |
-| Agent tab refinements | CodeNotch-inspired remaining-quota rings/details; Notchi-inspired dense hover rows and Working/Attention filters. Real notch and Agent Center visually checked with synthetic fixtures. Compact layout keeps a Working row visible at 135-point height; screenshot/pixel regression passes. Agents quota popups retain the notch's existing popover hold. Home/Shelf/media behavior is unchanged; shared edits only wire the Agents hold and its metadata endpoint/helper source membership. |
-| Quotas | Sandboxed release automatically displayed real Codex weekly allowance and Grok Bot weekly cache with no saved folder grants. ChatGPT's ring selects Weekly even when a five-hour primary exists; a missing weekly window is unavailable, never replaced with five-hour usage. Synthetic two-window quotas, reset details and filters verified. Unknown/malformed/future values, passed resets, ambiguous Grok accounts and obsolete secondary windows tested. ChatGPT chat limits and Grok Build CLI quota are not covered. |
+| Agent tab refinements | The 12 October dashboard uses prominent weekly USED percentages and bars, reset/stale labels, and a 12-week local session-activity calendar. Empty dates are labeled unknown; history is deduplicated and bounded. The 640×330 notch layout keeps usage and activity summaries visible while filters and session rows share one scroll area. Hosted render coverage targets 640×270 content. Agents quota popups retain the notch's existing popover hold. |
+| Quotas | Sandboxed release automatically displayed real Codex weekly allowance and Grok Bot weekly cache with no saved folder grants. ChatGPT's weekly USED card selects Weekly even when a five-hour primary exists; a missing weekly window is unavailable, never replaced with five-hour usage. Synthetic two-window quotas, reset details and filters verified. Unknown/malformed/future values, passed resets, ambiguous Grok accounts and obsolete secondary windows tested. ChatGPT chat limits and Grok Build CLI quota are not covered. |
 | Autodetection | Release UI identified both installed/running apps, showed Automatic monitoring for both, loaded usage and recent Codex sessions through the embedded helper, and omitted Connect local data for each. No folder picker or new OS permission was used. Pausing is persistent; manual connection is reserved for unidentified apps. Fixed-root/provider allowlist and metadata-only wire round-trip are tested. Custom CLI executable locations, unregistered app installs and other Grok Bot versions remain outside verified discovery coverage. |
 | Popup interaction | In the running release, opened ChatGPT weekly details, moved into the popup extending below the notch and used its Open app control without the notch closing. The popup remained present across subsequent inspections. Escape dismissed it and restored normal hover closing. Manual Connect visibility is tested for undetected/installed/running/CLI cases; an undetected real installation was not available on this Mac. |
 | Modular architecture | Foundation-only `AgentSessionProvider` plus independent actor-based log/hook/usage-cache adapters; UI, merging and alerts do not depend on transcript content. |
@@ -49,7 +49,8 @@ installed Codex CLI 0.144.6 and Codex Desktop 26.1007.21159.
 ## Reproducing the hosted suite
 
 Two standard debugger/checker test launches stalled in the system dynamic loader
-before app entry. A direct test launch passed all 110 tests. The final local Release
+before app entry. A direct test launch passed all 110 tests at the time of the
+10 October verification. The final local Release
 launches normally; this was a test-host issue, not a monitoring failure.
 `scripts/test-agents-local.sh ../DerivedData` creates a temporary direct-launch
 validation scheme (no debugger/Main Thread Checker/Thread Performance Checker,
@@ -59,7 +60,8 @@ unchanged. Set `TEST_RUNNER_AGENTS_TEST_RENDER_DIR=1` for synthetic screenshots 
 the test app's temporary `AgentMonitorValidation` folder.
 
 Standalone checks: `swift test` and `python3 integrations/codex/test_notch_hook.py`.
-The 129 passing tests consist of 110 hosted app, 15 core and four hook tests.
+The 12 October results are recorded below; these counts describe the earlier
+10 October run.
 
 See [AGENTS.md](AGENTS.md) for setup, exact state meanings and architecture.
 
@@ -88,3 +90,26 @@ scrollbar from 0 to 0.2427 and back to 0 without closing the notch.
 Physical trackpad/momentum, external displays and screen
 lock remain direct-Mac acceptance checks. Explicit callback DNS/IP connection
 pinning remains an acknowledged relay platform limitation.
+
+## Current UI and live-state check (12 October 2026)
+
+The rebuilt app was visually checked in a 640×330 Agents/Dot notch window. The
+captured screen shows the original Dot avatar, all four tabs, readable weekly
+USED allowance figures and the session activity calendar. This is screenshot
+evidence for layout and displayed data; it does not verify a live Dot exchange.
+
+The latest reported suites passed 134 hosted app tests, 20 AgentMonitorCore
+tests, 29 relay runtime tests and four hook tests. Relay type checks and
+production builds also passed. These results supersede the 10 October counts
+above; the 11 October relay count of 27 is historical.
+
+At this check, the native Dot client remains at “Reconnecting.” A real
+send-and-reply round trip is pending while native transport errors are being
+fixed. The 11 October OAuth and “Relay connected” observations describe that
+earlier session and do not establish the current connection or completed live
+chat.
+
+The 11 October scrollbar-position check verified that the Agents panel could
+scroll without closing the notch. It did not verify physical mouse-wheel input
+or trackpad momentum. External-display behavior and screen-lock behavior also
+remain unverified.
