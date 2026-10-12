@@ -42,6 +42,16 @@ final class AgentActivityHistoryTests: XCTestCase {
         XCTAssertFalse(history.hasRecordedActivity(on: now.addingTimeInterval(-86_400), calendar: calendar))
     }
 
+    func testPollingOldSessionDoesNotMarkObservationDay() {
+        var history = AgentActivityHistory()
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: now)!
+        let oldSession = session("11111111-2222-3333-4444-555555555555", updatedAt: yesterday)
+        history.record([oldSession], observedAt: now, calendar: calendar)
+        history.record([oldSession], observedAt: now.addingTimeInterval(3), calendar: calendar)
+        XCTAssertEqual(history.sessionCount(on: yesterday, calendar: calendar), 1)
+        XCTAssertEqual(history.sessionCount(on: now, calendar: calendar), 0)
+    }
+
     func testHistoryRejectsOtherProvidersAndBoundsRetainedDays() {
         var history = AgentActivityHistory()
         var otherProvider = session("11111111-2222-3333-4444-555555555555", updatedAt: now)

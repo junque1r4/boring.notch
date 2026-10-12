@@ -161,7 +161,7 @@ final class AgentMonitor {
         guard !Task.isCancelled, currentGeneration == generation else { return }
         sessions = AgentSessionMerge.merge(snapshots)
         usage = AgentUsageWindow.merge(snapshots.flatMap(\.usage))
-        if !activeProviders.isEmpty {
+        if providers["logs"] != nil || providers["hooks"] != nil {
             var updatedHistory = activityHistory
             updatedHistory.record(sessions, observedAt: date)
             if updatedHistory != activityHistory {

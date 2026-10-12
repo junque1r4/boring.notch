@@ -265,6 +265,8 @@ struct AgentActivityCalendar: View {
                     Text("Codex session timestamps")
                         .font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
                 }
+                Text("No record = unknown")
+                    .font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
             }.frame(minWidth: 112, alignment: .leading)
             Spacer(minLength: 0)
             HStack(alignment: .top, spacing: 3) {
@@ -289,21 +291,21 @@ struct AgentActivityCalendar: View {
     private func activityCell(for date: Date) -> some View {
         let isFuture = calendar.startOfDay(for: date) > calendar.startOfDay(for: now)
         let count = history.sessionCount(on: date, calendar: calendar)
-        let isTracked = count > 0 || (history.trackingStartedAt.map { date >= calendar.startOfDay(for: $0) } ?? false)
-        let tint: Color = count == 0 ? .white.opacity(isTracked ? 0.08 : 0.035) : .cyan.opacity(count == 1 ? 0.42 : count < 4 ? 0.68 : 1)
+        let tint: Color = count == 0 ? .white.opacity(0.035) : .cyan.opacity(count == 1 ? 0.42 : count < 4 ? 0.68 : 1)
         return RoundedRectangle(cornerRadius: 1.5)
             .fill(isFuture ? .clear : tint)
             .frame(width: 7, height: 7)
             .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(.white.opacity(isFuture ? 0.035 : 0.025), lineWidth: 0.5))
-            .help(dayDescription(date, count: count, isFuture: isFuture, isTracked: isTracked))
-            .accessibilityLabel(dayDescription(date, count: count, isFuture: isFuture, isTracked: isTracked))
+            .help(dayDescription(date, count: count, isFuture: isFuture))
+            .accessibilityLabel(dayDescription(date, count: count, isFuture: isFuture))
     }
 
-    private func dayDescription(_ date: Date, count: Int, isFuture: Bool, isTracked: Bool) -> String {
+    private func dayDescription(_ date: Date, count: Int, isFuture: Bool) -> String {
         let label = date.formatted(date: .complete, time: .omitted)
         if isFuture { return "\(label): future date" }
-        if !isTracked { return "\(label): not tracked" }
-        return count > 0 ? "\(label): \(count) recorded session\(count == 1 ? "" : "s")" : "\(label): no session recorded"
+        if count == 0 { return "\(label): no local session record; activity is unknown" }
+        let countLabel = count >= 5 ? "5+ recorded sessions" : "\(count) recorded session\(count == 1 ? "" : "s")"
+        return "\(label): \(countLabel)"
     }
 }
 
