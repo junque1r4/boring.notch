@@ -364,6 +364,7 @@ struct ContentView: View {
                         horizontalMediaGestureFeedback = .zero
                     }
                     .onChange(of: coordinator.currentView) { _, selected in
+                        if selected != .dot { vm.isDotPinned = false }
                         if vm.notchState == .open {
                             vm.notchSize = vm.size(for: selected)
                         }

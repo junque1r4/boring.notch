@@ -19,7 +19,7 @@ struct DotChatView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            DotChatHeader(store: store, close: dismissDot, editingConnection: $editingConnection)
+            DotChatHeader(store: store, viewModel: viewModel, close: dismissDot, editingConnection: $editingConnection)
             if store.configuration == nil || editingConnection {
                 DotConnectionSetup(store: store, endpoint: $endpoint, setupError: $setupError,
                     editingConnection: $editingConnection, connect: connect)
@@ -86,6 +86,7 @@ struct DotChatView: View {
 
 private struct DotChatHeader: View {
     @Bindable var store: DotChatStore
+    @ObservedObject var viewModel: BoringViewModel
     let close: () -> Void
     @Binding var editingConnection: Bool
 
@@ -105,6 +106,14 @@ private struct DotChatHeader: View {
                 } label: { Image(systemName: "gearshape") }
                     .buttonStyle(.plain).accessibilityLabel("Private Dot connection settings")
             }
+            Button {
+                viewModel.isDotPinned.toggle()
+            } label: {
+                Image(systemName: viewModel.isDotPinned ? "pin.fill" : "pin")
+            }
+            .buttonStyle(.plain)
+            .help(viewModel.isDotPinned ? "Unpin Dot chat" : "Pin Dot chat")
+            .accessibilityLabel(viewModel.isDotPinned ? "Unpin Dot chat" : "Pin Dot chat")
             Button(action: close) { Image(systemName: "xmark") }
                 .buttonStyle(.plain).accessibilityLabel("Close Dot chat")
         }
@@ -178,8 +187,14 @@ private struct DotTranscript: View {
                             .font(.caption).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center).padding(.top, 16)
                     }
-                    ForEach(store.messages) { message in
-                        DotMessageRow(message: message).id(message.id)
+                    ForEach(Array(store.messages.enumerated()), id: \.element.id) { index, message in
+                        VStack(spacing: 10) {
+                            if index == 0 || !Calendar.current.isDate(message.createdAt, inSameDayAs: store.messages[index - 1].createdAt) {
+                                DotDateSeparator(date: message.createdAt)
+                            }
+                            DotMessageRow(message: message)
+                        }
+                        .id(message.id)
                     }
                     Color.clear.frame(height: 1).id("latest")
                         .background(GeometryReader { geometry in
@@ -212,17 +227,203 @@ private struct DotMessageRow: View {
     let message: DotChatMessage
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(message.role == .user ? "You" : "Dot")
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            Text(message.text).font(.system(size: 13)).textSelection(.enabled)
-            if let delivery = message.delivery {
-                Text(delivery.label).font(.system(size: 10)).foregroundStyle(.secondary)
+        HStack {
+            if message.role == .user { Spacer(minLength: 30) }
+            VStack(alignment: .leading, spacing: 6) {
+                if message.role == .assistant {
+                    Image("DotLogo").renderingMode(.original)
+                        .resizable().scaledToFit().frame(width: 17, height: 17)
+                        .accessibilityLabel("Dot")
+                }
+                DotMarkdownView(source: message.text)
+                HStack(spacing: 4) {
+                    Spacer(minLength: 0)
+                    Text(message.createdAt, format: .dateTime.hour().minute())
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                        .help(message.createdAt.formatted(date: .complete, time: .complete))
+                    if message.role == .user, let delivery = message.delivery {
+                        DotDeliveryMark(delivery: delivery)
+                    }
+                }
+            }
+            .padding(.horizontal, 11).padding(.vertical, 9)
+            .containerRelativeFrame(.horizontal, count: 5, span: 4, spacing: 0, alignment: .leading)
+            .frame(maxWidth: 520, alignment: .leading)
+            .background(message.role == .user ? Color.white.opacity(0.085) : Color.cyan.opacity(0.075),
+                in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            if message.role == .assistant { Spacer(minLength: 30) }
+        }
+    }
+}
+
+private struct DotDateSeparator: View {
+    let date: Date
+
+    var body: some View {
+        Text(date, format: .dateTime.weekday(.wide).month(.abbreviated).day())
+            .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(.white.opacity(0.07), in: Capsule())
+            .frame(maxWidth: .infinity).padding(.vertical, 2)
+    }
+}
+
+private struct DotDeliveryMark: View {
+    let delivery: DotMessageDelivery
+
+    private var symbol: String {
+        switch delivery {
+        case .queued: return "clock"
+        case .uncertain: return "questionmark.circle"
+        case .delivered: return "checkmark"
+        case .failed: return "xmark"
+        case .replied: return "checkmark"
+        }
+    }
+
+    private var label: String {
+        switch delivery {
+        case .queued: return "Queued at the private relay. Delivery to ChatGPT is not confirmed."
+        case .uncertain: return "The relay receipt is unconfirmed; the app is checking the relay."
+        case .delivered: return "The relay confirms delivery to ChatGPT. This does not confirm that Dot has read or processed the message."
+        case .failed: return "The relay reports that delivery failed."
+        case .replied: return "Dot replied to this message. This is a reply receipt, not a read receipt."
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: -3) {
+            Image(systemName: symbol)
+            if delivery == .replied { Image(systemName: symbol) }
+        }
+        .font(.system(size: 9, weight: .semibold))
+        .foregroundStyle(delivery == .failed ? Color.orange : Color.cyan)
+        .accessibilityElement()
+        .accessibilityLabel(label)
+        .help(label)
+    }
+}
+
+private struct DotMarkdownView: View {
+    let source: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(DotMarkdownBlock.parse(source).enumerated()), id: \.offset) { _, block in
+                switch block.kind {
+                case .paragraph:
+                    inlineText(block.text).font(.system(size: 13))
+                case .heading:
+                    inlineText(block.text).font(.system(size: 14, weight: .semibold))
+                case .list:
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(block.marker).foregroundStyle(.secondary)
+                        inlineText(block.text)
+                    }.font(.system(size: 13))
+                case .code:
+                    Text(block.text).font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(7).background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
+                }
             }
         }
-        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-        .background(message.role == .user ? Color.white.opacity(0.07) : Color.cyan.opacity(0.07),
-            in: RoundedRectangle(cornerRadius: 10))
+        .textSelection(.enabled)
+    }
+
+    private func inlineText(_ source: String) -> Text {
+        Text(DotMarkdownBlock.inline(source))
+    }
+}
+
+struct DotMarkdownBlock {
+    enum Kind: Equatable { case paragraph, heading, list, code }
+    let kind: Kind
+    let text: String
+    var marker = ""
+
+    static func parse(_ source: String) -> [DotMarkdownBlock] {
+        let lines = source.components(separatedBy: .newlines)
+        var blocks: [DotMarkdownBlock] = []
+        var paragraph: [String] = []
+        var code: [String] = []
+        var inCode = false
+        func flushParagraph() {
+            guard !paragraph.isEmpty else { return }
+            blocks.append(DotMarkdownBlock(kind: .paragraph, text: paragraph.joined(separator: "\n")))
+            paragraph.removeAll(keepingCapacity: true)
+        }
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                if inCode {
+                    blocks.append(DotMarkdownBlock(kind: .code, text: code.joined(separator: "\n")))
+                    code.removeAll(keepingCapacity: true)
+                } else {
+                    flushParagraph()
+                }
+                inCode.toggle()
+                continue
+            }
+            if inCode { code.append(line); continue }
+            if trimmed.isEmpty { flushParagraph(); continue }
+            if let heading = headingContent(trimmed) {
+                flushParagraph()
+                blocks.append(DotMarkdownBlock(kind: .heading, text: heading))
+            } else if let (marker, content) = listContent(trimmed) {
+                flushParagraph()
+                blocks.append(DotMarkdownBlock(kind: .list, text: content, marker: marker))
+            } else {
+                paragraph.append(trimmed)
+            }
+        }
+        if inCode { blocks.append(DotMarkdownBlock(kind: .code, text: code.joined(separator: "\n"))) }
+        flushParagraph()
+        return blocks
+    }
+
+    private static func headingContent(_ line: String) -> String? {
+        let hashes = line.prefix(while: { $0 == "#" }).count
+        guard (1...6).contains(hashes), line.dropFirst(hashes).first == " " else { return nil }
+        return String(line.dropFirst(hashes + 1))
+    }
+
+    private static func listContent(_ line: String) -> (String, String)? {
+        if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") {
+            return ("•", String(line.dropFirst(2)))
+        }
+        var digits = 0
+        for character in line {
+            guard character.isNumber else { break }
+            digits += 1
+        }
+        let separator = line.dropFirst(digits).first
+        guard digits > 0, (separator == "." || separator == ")"),
+              line.dropFirst(digits + 1).first == " " else { return nil }
+        let marker = String(line.prefix(digits + 1))
+        return (marker, String(line.dropFirst(digits + 2)))
+    }
+
+    static func isSafeLink(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.user == nil, components.password == nil else { return false }
+        if components.scheme?.lowercased() == "https" { return components.host?.isEmpty == false }
+        if components.scheme?.lowercased() == "http" { return components.host?.isEmpty == false }
+        return false
+    }
+
+    static func inline(_ source: String) -> AttributedString {
+        var value: AttributedString
+        do {
+            value = try AttributedString(markdown: source,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+        } catch {
+            value = AttributedString(source)
+        }
+        for run in Array(value.runs) {
+            guard let link = run.link, !isSafeLink(link) else { continue }
+            value[run.range].link = nil
+        }
+        return value
     }
 }
 
@@ -232,18 +433,21 @@ private struct DotComposerRow: View {
     let inputWindowAttached: (NSWindow, NSTextView, Bool) -> Bool
 
     var body: some View {
-        VStack(spacing: 4) {
-            HStack(alignment: .bottom) {
-                DotComposer(text: $store.draft, send: { Task { await store.sendDraft() } }, close: close,
-                    inputWindowAttached: inputWindowAttached)
-                    .frame(height: 62)
-                    .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-                Button("Send") { Task { await store.sendDraft() } }
-                    .disabled(!store.canSend)
+        HStack(alignment: .bottom, spacing: 8) {
+            DotComposer(text: $store.draft, send: { Task { await store.sendDraft() } }, close: close,
+                inputWindowAttached: inputWindowAttached)
+                .frame(height: 62)
+                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Button { Task { await store.sendDraft() } } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 34, height: 34)
             }
-            Text("Return sends · Shift–Return adds a line · \(store.draft.utf8.count)/8192 bytes")
-                .font(.system(size: 10)).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            .buttonStyle(.borderedProminent)
+            .clipShape(Circle())
+            .help("Send message")
+            .accessibilityLabel("Send message")
+            .disabled(!store.canSend)
         }
     }
 }
@@ -360,6 +564,7 @@ private struct DotBottomPreference: PreferenceKey {
 
     private func dismissFromOutsideClick() {
         guard let viewModel else { return }
+        guard !viewModel.isDotPinned else { return }
         dismiss(restoreForegroundApplication: false)
         viewModel.close(forced: true)
     }

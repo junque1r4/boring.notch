@@ -31,6 +31,8 @@ final class BoringViewModel: NSObject, ObservableObject {
     /// Dot is an ordinary notch tab, so its visibility follows the selected tab.
     var isDotChatActive: Bool { notchState == .open && coordinator.currentView == .dot }
     @Published var isDotInputActive = false
+    /// Per-window hold; explicit close, changing tabs, and screen lock still dismiss.
+    @Published var isDotPinned = false
     @Published private(set) var dotKeyboardFocusRequested = false
     private var dotKeyboardReturnApplication: NSRunningApplication?
 
@@ -199,10 +201,11 @@ final class BoringViewModel: NSObject, ObservableObject {
     @discardableResult
     func close(forced: Bool = false) -> Bool {
         // Do not close while a share picker or sharing service is active
-        if !forced && (SharingStateManager.shared.preventNotchClose || isDotInputActive) {
+        if !forced && (SharingStateManager.shared.preventNotchClose || isDotInputActive || (isDotChatActive && isDotPinned)) {
             return false
         }
         isDotInputActive = false
+        isDotPinned = false
         dotKeyboardFocusRequested = false
         dotKeyboardReturnApplication = nil
         // The camera is on-demand: the notch closing always ends capture.

@@ -83,6 +83,45 @@ private actor DotTestHTTP: DotHTTPClient {
             status: nil, text: text, createdAt: Date())
     }
 
+    func testMarkdownParserKeepsParagraphsListsAndFencedCodeAsDistinctBlocks() {
+        let blocks = DotMarkdownBlock.parse("""
+        First **paragraph**
+        continues.
+
+        - alpha
+        - beta
+        1. first
+        2) second
+
+        ```swift
+        let value = 1
+        print(value)
+        ```
+
+        Final paragraph.
+        """)
+
+        XCTAssertEqual(blocks.map(\.kind), [.paragraph, .list, .list, .list, .list, .code, .paragraph])
+        XCTAssertEqual(blocks[0].text, "First **paragraph**\ncontinues.")
+        XCTAssertEqual(blocks[1].marker, "•")
+        XCTAssertEqual(blocks[2].marker, "•")
+        XCTAssertEqual(blocks[3].marker, "1.")
+        XCTAssertEqual(blocks[4].marker, "2)")
+        XCTAssertEqual(blocks[5].text, "let value = 1\nprint(value)")
+        XCTAssertEqual(blocks[6].text, "Final paragraph.")
+    }
+
+    func testMarkdownInlineLinksKeepWebLinksAndRemoveUnsafeSchemes() throws {
+        let rendered = DotMarkdownBlock.inline("""
+        [secure](https://example.com/path) [web](http://example.com) [file](file:///etc/passwd) [data](data:text/plain,hello) [custom](myapp://open)
+        """)
+        let links = rendered.runs.compactMap(\.link)
+
+        XCTAssertEqual(links, [try XCTUnwrap(URL(string: "https://example.com/path")),
+                                try XCTUnwrap(URL(string: "http://example.com"))])
+        XCTAssertFalse(links.contains { $0.scheme == "file" || $0.scheme == "data" || $0.scheme == "myapp" })
+    }
+
     func testEncryptedTranscriptRoundTripHasNoPlaintextAndTamperingFails() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }

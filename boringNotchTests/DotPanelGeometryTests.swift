@@ -4,6 +4,39 @@ import AppKit
 @testable import boringNotch
 
 @MainActor final class DotNotchSizingTests: XCTestCase {
+    func testPinnedDotResistsAutomaticCloseButExplicitCloseClearsHold() {
+        let coordinator = BoringViewCoordinator.shared
+        let originalTab = coordinator.currentView
+        let originalFirstLaunch = coordinator.firstLaunch
+        defer { coordinator.currentView = originalTab; coordinator.firstLaunch = originalFirstLaunch }
+        coordinator.firstLaunch = false
+        coordinator.currentView = .dot
+        let model = BoringViewModel(camera: CameraModel())
+        XCTAssertTrue(model.open())
+        model.isDotPinned = true
+        model.isDotInputActive = false
+        XCTAssertFalse(model.close())
+        XCTAssertEqual(model.notchState, .open)
+        XCTAssertTrue(model.close(forced: true))
+        XCTAssertEqual(model.notchState, .closed)
+        XCTAssertFalse(model.isDotPinned)
+    }
+
+    func testDotPinDoesNotRetainHomeTab() {
+        let coordinator = BoringViewCoordinator.shared
+        let originalTab = coordinator.currentView
+        let originalFirstLaunch = coordinator.firstLaunch
+        defer { coordinator.currentView = originalTab; coordinator.firstLaunch = originalFirstLaunch }
+        coordinator.firstLaunch = false
+        coordinator.currentView = .home
+        let model = BoringViewModel(camera: CameraModel())
+        XCTAssertTrue(model.open())
+        model.isDotPinned = true
+        XCTAssertTrue(model.close())
+        XCTAssertEqual(model.notchState, .closed)
+        XCTAssertFalse(model.isDotPinned)
+    }
+
     func testStandardDisplayUsesBoundedEmbeddedDotSize() {
         let size = DotNotchSizing.size(available: CGSize(width: 1600, height: 1080))
         XCTAssertEqual(size, dotNotchSize)
