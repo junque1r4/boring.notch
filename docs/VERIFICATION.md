@@ -234,3 +234,23 @@ upstream helper/framework boundaries documented above remain.
   Frame-by-frame motion, rapid physical pointer reversals, external displays and
   hardware trackpad checks remain unverified. The full earlier suite was not
   rerun for this correction; prior relay latency limits remain unchanged.
+
+## 12 October 2026 — Delayed main-notch hover rollback
+
+- The previous source/endpoint checks did not establish working hover-to-open.
+  The owner reported it still failed, despite the original handleHover body
+  being present. The Dot callback was attached after position, which gives its
+  wrapper the overlay's full layout size and could cancel the main hover timer.
+- Restored the earlier separation of hover regions by attaching Dot's callback
+  to the fixed 36×32 button before positioning. The only production change moves
+  that modifier. The main handleHover implementation is byte-for-byte identical
+  to pre-shortcut commit 05c6016; its timing constants remain unchanged. No new
+  timer, alternate opening logic, size change or motion change was introduced.
+- Live settings inspection confirmed Open notch on hover on, delay 0.3s, notch
+  animation on and speed 1.0x; no preference was changed. Universal Release build
+  and signature verification passed (parent work/hover-boundary-rollback-build.log).
+- The updated app relaunched with its existing stable signing identity. The owner
+  then hovered the main notch without clicking and confirmed: “Yes, hover opens
+  it again.” This confirms the requested delayed opening on the real Mac.
+- This modifier-only rollback did not rerun the earlier 21 focused tests or
+  change/retest Dot's motion, message delivery or relay latency.

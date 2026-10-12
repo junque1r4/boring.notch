@@ -62,12 +62,15 @@ struct DotLauncherOverlay: View {
                 isOpen: isOpen
             )
             DotLauncherButton(unreadCount: DotChatStore.shared.unreadCount, action: action)
+                // Preserve the pre-overlay hover boundary: only Dot's fixed
+                // button owns this callback. position expands its wrapper to
+                // the window, where it would cancel the original notch timer.
+                .onHover(perform: onHover)
                 .position(x: 0, y: 0)
                 .modifier(DotLauncherTravel(progress: progress, source: source,
                                             destination: destination, clearanceY: clearanceY))
                 .opacity(placed ? 1 : 0)
                 .allowsHitTesting(placed)
-                .onHover(perform: onHover)
                 .onChange(of: measurement, initial: true) { _, newValue in
                     if let rect = newValue.closedRect {
                         let center = CGPoint(x: rect.midX, y: rect.midY)

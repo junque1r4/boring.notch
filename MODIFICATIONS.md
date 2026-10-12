@@ -101,3 +101,9 @@ See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.
   endpoint rather than following the shrinking expanded notch's right edge.
 - Honor Reduce Motion and animation preferences; keep Dot accessible in compact
   mode without replacing the normal Home compact-player behavior.
+
+## 12 October 2026 — Restore delayed hover opening
+
+- Return Dot's hover callback to its button-sized region, removing interference
+  with the main notch's existing delayed-opening handler. Preserve the original
+  delay, hover implementation and current Dot animations.
