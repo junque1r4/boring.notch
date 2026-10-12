@@ -14,7 +14,7 @@ export default defineConfig({
       OAUTH_KV: bindings.kv({ id: "47ddd5b423f94ad485b8bfea2be1ce0a" }),
       RELAY_ORIGIN: bindings.text("https://boring-notch-dot-relay.ext-joao-junqueira.workers.dev"), // Set exact deployed origin after first health-only deployment.
       OWNER_GITHUB_ID: bindings.text("39351332"),
-      CALLBACK_ORIGINS: bindings.text(""), // Exact verified public ChatGPT callback origins, comma-separated.
+      CALLBACK_ORIGINS: bindings.text("https://connectors.api.openai.com"), // Exact verified public ChatGPT callback origins, comma-separated.
       GITHUB_CLIENT_ID: bindings.secret(),
       GITHUB_CLIENT_SECRET: bindings.secret(),
       RELAY_ENCRYPTION_KEY: bindings.secret(), // 32 random bytes, base64; never commit the value.
