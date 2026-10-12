@@ -44,30 +44,22 @@ enum AgentSessionFilter: String, CaseIterable, Identifiable {
 
 struct AgentsView: View {
     var monitor = AgentMonitor.shared
-    var dot = DotChatStore.shared
-    var notchViewModel: BoringViewModel?
-    @State private var parentWindow: NSWindow?
     @Binding var popoverActive: Bool
     @State private var activePopovers = AgentPopoverState()
     init(monitor: AgentMonitor = .shared, popoverActive: Binding<Bool> = .constant(false), notchViewModel: BoringViewModel? = nil) {
         self.monitor = monitor
-        self.notchViewModel = notchViewModel
         _popoverActive = popoverActive
     }
     var body: some View {
-        AgentsDashboard(sessions: monitor.sessions, usage: monitor.usage, apps: monitor.detectedApps,
+        AgentsDashboard(sessions: monitor.sessions, usage: monitor.usage, activity: monitor.activityHistory,
+            apps: monitor.detectedApps,
             connected: Set(monitor.folderNames.keys), alert: monitor.latestAlert, now: monitor.refreshedAt ?? Date(),
             navigate: monitor.navigate, connect: monitor.chooseFolder, openApp: monitor.openApp,
             settings: { AgentsWindowController.shared.show() }, dismissAlert: monitor.dismissAlert,
             popoverChanged: { id, showing in
-                if showing { DotChatPanelController.shared.dismiss(restoreFocus: false) }
                 activePopovers.update(providerID: id, showing: showing)
                 popoverActive = activePopovers.isActive
-            }, dotUnread: dot.unreadCount, openDot: {
-                guard let parentWindow else { return }
-                DotChatPanelController.shared.show(attachedTo: parentWindow, owner: notchViewModel)
             })
-            .background(DotParentWindowReader { parentWindow = $0 })
             .onDisappear { activePopovers.reset(); popoverActive = false }
     }
 }
@@ -75,6 +67,7 @@ struct AgentsView: View {
 struct AgentsDashboard: View {
     let sessions: [AgentSession]
     let usage: [AgentUsageWindow]
+    let activity: AgentActivityHistory
     let apps: [DetectedAgentApp]
     let connected: Set<String>
     let alert: AgentSession?
@@ -85,8 +78,6 @@ struct AgentsDashboard: View {
     let settings: () -> Void
     let dismissAlert: () -> Void
     var popoverChanged: (String, Bool) -> Void = { _, _ in }
-    var dotUnread = 0
-    var openDot: (() -> Void)?
     @State private var filter: AgentSessionFilter = .all
 
     var body: some View {
@@ -98,25 +89,18 @@ struct AgentsDashboard: View {
     private func dashboard(compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: compact ? 4 : 7) {
             HStack {
-                Text("Agents").font(.system(size: compact ? 11 : 13, weight: .semibold))
+                Text("Agents Status").font(.system(size: compact ? 11 : 13, weight: .semibold))
                 if !compact { Text("ON THIS MAC").font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundStyle(.secondary) }
                 Spacer()
                 if compact { filters(compact: true) }
-                if let openDot {
-                    Button(action: openDot) {
-                        HStack(spacing: 3) {
-                            Text("Dot")
-                            if dotUnread > 0 { Text("\(min(dotUnread, 99))").font(.system(size: 8, weight: .bold)).padding(3).background(.cyan.opacity(0.3), in: Capsule()) }
-                        }
-                    }.help("Talk to your Dot").accessibilityLabel("Dot chat, \(dotUnread) unread replies")
-                }
                 Button(action: settings) { Image(systemName: "slider.horizontal.3") }
                     .help("Agent monitoring settings").accessibilityLabel("Agent monitoring settings")
             }
             HStack(spacing: 8) {
-                quotaCard("codex", title: "ChatGPT", caption: "Codex allowance", glyph: "C", kind: "logs", compact: compact)
+                quotaCard("codex", title: "ChatGPT", caption: "Codex allowance · weekly", glyph: "C", kind: "logs", compact: compact)
                 quotaCard("grok-bot", title: "Grok Bot", caption: "Weekly allowance", glyph: "G", kind: "grok", compact: compact)
             }
+            AgentActivityCalendar(history: activity, now: now)
             if let alert {
                 HStack(spacing: 6) {
                     Image(systemName: alert.state.symbol).foregroundStyle(alert.state.color)
@@ -142,7 +126,7 @@ struct AgentsDashboard: View {
                     }
                 }.frame(maxHeight: .infinity)
             }
-            Text(compact ? "Local snapshots · Approvals in the agent app" : "Last reported activity · Approvals stay in the agent app")
+            Text(compact ? "Local status · Approvals in the agent app" : "Status from local session records · Approvals stay in the agent app")
                 .font(.system(size: compact ? 7 : 8)).foregroundStyle(.secondary)
         }
         .buttonStyle(.plain).padding(.horizontal, 10).padding(.bottom, compact ? 3 : 8).foregroundStyle(.white)
@@ -162,13 +146,14 @@ struct AgentsDashboard: View {
     }
 
     private func quotaCard(_ id: String, title: String, caption: String, glyph: String, kind: String, compact: Bool) -> some View {
-        AgentQuotaCard(title: title, caption: caption, glyph: glyph, windows: usage.filter { $0.providerID == id },
+        AgentQuotaCard(providerID: id, title: title, caption: caption, glyph: glyph, windows: usage.filter { $0.providerID == id },
             app: apps.first { $0.id == id }, connected: connected.contains(kind), now: now,
             connect: { connect(kind) }, openApp: { openApp(id) }, compact: compact, popoverChanged: { popoverChanged(id, $0) })
     }
 }
 
 struct AgentQuotaCard: View {
+    let providerID: String
     let title: String
     let caption: String
     let glyph: String
@@ -181,29 +166,54 @@ struct AgentQuotaCard: View {
     var compact = false
     var popoverChanged: (Bool) -> Void = { _ in }
     @State private var showDetails = false
-    private var headline: AgentUsageWindow? { AgentUsageWindow.headline(for: glyph == "C" ? "codex" : "grok-bot", in: windows) }
+    private var headline: AgentUsageWindow? { AgentUsageWindow.headline(for: providerID, in: windows) }
     var offersManualConnection: Bool { app?.isIdentified != true && !connected }
-    private var unavailableLabel: String { offersManualConnection ? "Connect" : "Weekly unavailable" }
-    private var remaining: Double? { headline?.remainingPercent(at: now) }
+    private var resetPassed: Bool { headline?.resetsAt.map { $0 <= now } ?? false }
+    private var currentUsedPercent: Double? { resetPassed ? nil : headline?.usedPercent }
+    private var statusLabel: String {
+        guard let headline else { return offersManualConnection ? "Connect local data" : "Usage unavailable" }
+        if resetPassed { return "Reset passed · waiting for reading" }
+        if headline.isStale(at: now) { return "Stale reading · may have changed" }
+        return headline.resetsAt.map { "Reset \($0.formatted(.relative(presentation: .numeric)))" } ?? "Reset time unavailable"
+    }
+    private var usageColor: Color { glyph == "C" ? .cyan : .purple }
+    private var percentLabel: String? { currentUsedPercent.map { "\(Int($0.rounded(.down)))%" } }
 
     var body: some View {
         Button { popoverChanged(true); showDetails = true } label: {
-            HStack(spacing: 7) {
-                AgentQuotaRing(remaining: remaining, glyph: glyph, stale: headline?.isStale(at: now) ?? false, diameter: compact ? 28 : 34)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 11, weight: .semibold)).lineLimit(1)
-                    Text(remaining.map { "\(Int($0.rounded(.down)))% left\(compact ? " · " + (headline?.label ?? "") : "")" } ?? unavailableLabel)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced)).lineLimit(1)
-                    if !compact { Text(headline.map { $0.isStale(at: now) ? "\($0.label) · stale" : "\($0.label) · snapshot" }
-                         ?? app?.status ?? caption)
-                        .font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1) }
-                    if compact && headline?.isStale(at: now) == true { Text("Stale").font(.system(size: 7)).foregroundStyle(.orange) }
+            VStack(alignment: .leading, spacing: compact ? 3 : 5) {
+                HStack(spacing: 5) {
+                    Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(percentLabel.map { "USED \($0)" } ?? "USAGE —")
+                        .font(.system(size: compact ? 10 : 11, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(currentUsedPercent == nil ? .secondary : usageColor)
                 }
-                Spacer(minLength: 0)
-            }.padding(compact ? 6 : 8).frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+                Text(caption).font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        if let currentUsedPercent {
+                            Capsule().fill(.white.opacity(0.10))
+                            Capsule().fill(usageColor.opacity(headline?.isStale(at: now) == true ? 0.42 : 0.95))
+                                .frame(width: geometry.size.width * min(1, max(0, currentUsedPercent / 100)))
+                        } else {
+                            Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                        }
+                    }
+                }.frame(height: 4)
+                HStack(spacing: 4) {
+                    Text(statusLabel).lineLimit(1)
+                    Spacer(minLength: 0)
+                    if headline?.isStale(at: now) == true || resetPassed {
+                        Image(systemName: "clock.arrow.circlepath").foregroundStyle(.orange)
+                    }
+                }.font(.system(size: 7, weight: .medium, design: .monospaced))
+                    .foregroundStyle(headline?.isStale(at: now) == true || resetPassed ? .orange : .secondary)
+            }.padding(.horizontal, compact ? 7 : 9).padding(.vertical, compact ? 5 : 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
         }
-        .accessibilityLabel("\(title), \(remaining.map { "\(Int($0.rounded(.down))) percent remaining" } ?? "weekly usage unavailable")")
+        .accessibilityLabel("\(title), \(percentLabel.map { "used \($0)" } ?? "usage unavailable"), \(statusLabel)")
         .onChange(of: showDetails) { _, showing in popoverChanged(showing) }
         .onDisappear { popoverChanged(false) }
         .popover(isPresented: $showDetails, arrowEdge: .bottom) {
@@ -217,7 +227,7 @@ struct AgentQuotaCard: View {
                 }
                 ForEach(windows) { window in
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("\(window.label): \(window.remainingPercent(at: now).map { "\(Int($0.rounded(.down)))% remaining" } ?? "reset passed; waiting for a reading")")
+                        Text("\(window.label): \(window.resetsAt.map { $0 <= now } == true ? "last reading \(Int(window.usedPercent.rounded(.down)))%" : "\(Int(window.usedPercent.rounded(.down)))% used")")
                             .font(.subheadline)
                         if let reset = window.resetsAt { Text("Reset: \(reset.formatted(date: .abbreviated, time: .shortened))").font(.caption) }
                         Text("Observed: \(window.observedAt.formatted(date: .abbreviated, time: .shortened)) · \(window.source)")
@@ -237,22 +247,63 @@ struct AgentQuotaCard: View {
     }
 }
 
-struct AgentQuotaRing: View {
-    let remaining: Double?
-    let glyph: String
-    let stale: Bool
-    var diameter: CGFloat = 34
-    private var color: Color { remaining.map { $0 <= 10 ? .red : $0 <= 30 ? .orange : .green } ?? .gray }
+struct AgentActivityCalendar: View {
+    let history: AgentActivityHistory
+    let now: Date
+    private var calendar: Calendar { .current }
+
     var body: some View {
-        ZStack {
-            Circle().stroke(.white.opacity(0.12), lineWidth: 3)
-            if let remaining {
-                Circle().trim(from: 0, to: max(0, min(1, remaining / 100)))
-                    .stroke(color.opacity(stale ? 0.4 : 1), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }
-            Text(glyph).font(.system(size: 14, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(stale ? 0.5 : 0.9))
-        }.frame(width: diameter, height: diameter).accessibilityHidden(true)
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("SESSION ACTIVITY").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundStyle(.secondary)
+                Text(history.isTracking ? "\(history.activeDayCount) recorded days" : "Waiting for local records")
+                    .font(.system(size: 10, weight: .semibold)).monospacedDigit().lineLimit(1)
+                if let startedAt = history.trackingStartedAt {
+                    Text("Recording since \(startedAt, format: .dateTime.month(.abbreviated).day())")
+                        .font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    Text("Codex session timestamps")
+                        .font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }.frame(minWidth: 112, alignment: .leading)
+            Spacer(minLength: 0)
+            HStack(alignment: .top, spacing: 3) {
+                if let currentWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start,
+                   let firstWeek = calendar.date(byAdding: .weekOfYear, value: -11, to: currentWeek) {
+                    ForEach(0..<12, id: \.self) { week in
+                        VStack(spacing: 3) {
+                            ForEach(0..<7, id: \.self) { weekday in
+                                if let date = calendar.date(byAdding: .day, value: week * 7 + weekday, to: firstWeek) {
+                                    activityCell(for: date)
+                                }
+                            }
+                        }
+                    }
+                }
+            }.accessibilityElement(children: .contain).accessibilityLabel("12-week local session activity calendar")
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func activityCell(for date: Date) -> some View {
+        let isFuture = calendar.startOfDay(for: date) > calendar.startOfDay(for: now)
+        let count = history.sessionCount(on: date, calendar: calendar)
+        let isTracked = count > 0 || (history.trackingStartedAt.map { date >= calendar.startOfDay(for: $0) } ?? false)
+        let tint: Color = count == 0 ? .white.opacity(isTracked ? 0.08 : 0.035) : .cyan.opacity(count == 1 ? 0.42 : count < 4 ? 0.68 : 1)
+        return RoundedRectangle(cornerRadius: 1.5)
+            .fill(isFuture ? .clear : tint)
+            .frame(width: 7, height: 7)
+            .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(.white.opacity(isFuture ? 0.035 : 0.025), lineWidth: 0.5))
+            .help(dayDescription(date, count: count, isFuture: isFuture, isTracked: isTracked))
+            .accessibilityLabel(dayDescription(date, count: count, isFuture: isFuture, isTracked: isTracked))
+    }
+
+    private func dayDescription(_ date: Date, count: Int, isFuture: Bool, isTracked: Bool) -> String {
+        let label = date.formatted(date: .complete, time: .omitted)
+        if isFuture { return "\(label): future date" }
+        if !isTracked { return "\(label): not tracked" }
+        return count > 0 ? "\(label): \(count) recorded session\(count == 1 ? "" : "s")" : "\(label): no session recorded"
     }
 }
 

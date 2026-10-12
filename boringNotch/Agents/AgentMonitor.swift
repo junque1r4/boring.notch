@@ -8,6 +8,7 @@ final class AgentMonitor {
     static let shared = AgentMonitor()
     private(set) var sessions: [AgentSession] = []
     private(set) var usage: [AgentUsageWindow] = []
+    private(set) var activityHistory: AgentActivityHistory
     private(set) var detectedApps: [DetectedAgentApp] = []
     private(set) var diagnostics: [String] = []
     private(set) var folderNames: [String: String] = [:]
@@ -27,6 +28,8 @@ final class AgentMonitor {
     private let notifications = AgentNotificationDelegate()
 
     private init() {
+        activityHistory = UserDefaults.standard.data(forKey: "agents.activity-history")
+            .flatMap { try? JSONDecoder().decode(AgentActivityHistory.self, from: $0) } ?? AgentActivityHistory()
         alertsEnabled = UserDefaults.standard.bool(forKey: "agents.alerts")
         UNUserNotificationCenter.current().delegate = notifications
         pausedKinds = Set(["logs", "grok", "hooks"].filter { UserDefaults.standard.bool(forKey: "agents.paused.\($0)") })
@@ -158,6 +161,16 @@ final class AgentMonitor {
         guard !Task.isCancelled, currentGeneration == generation else { return }
         sessions = AgentSessionMerge.merge(snapshots)
         usage = AgentUsageWindow.merge(snapshots.flatMap(\.usage))
+        if !activeProviders.isEmpty {
+            var updatedHistory = activityHistory
+            updatedHistory.record(sessions, observedAt: date)
+            if updatedHistory != activityHistory {
+                activityHistory = updatedHistory
+                if let data = try? JSONEncoder().encode(updatedHistory) {
+                    UserDefaults.standard.set(data, forKey: "agents.activity-history")
+                }
+            }
+        }
         diagnostics = snapshots.isEmpty ? ["Monitoring is paused or no app is detected."] : snapshots.map(\.diagnostic).sorted()
         refreshedAt = date
         let transitions = alerts.transitions(sessions, now: date)
