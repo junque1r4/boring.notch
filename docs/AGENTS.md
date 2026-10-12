@@ -240,7 +240,7 @@ reports a newer macOS build target, so macOS 14–26 compatibility is unverified
 Navigation is Home → Shelf → Agents Status → Dot (Shelf remains conditional on
 its original setting). Dot uses the owner's original ChatGPT avatar image.
 Selecting Dot expands the same notch to at most 760 × 450 points, constrained
-to its display. Agents Status uses 640 × 330 points; Home and Shelf retain their
+to its display. Agents Status uses 640 × 440 points; Home and Shelf retain their
 original dimensions. The chat transcript and composer live inside the notch.
 A per-window hold keeps Dot open during typing and pointer movement. Escape,
 the close button, outside click, tab change and screen lock dismiss chat;
@@ -258,7 +258,13 @@ proof of Dot processing. Voice, attachments and approval controls are absent.
 
 Relay: https://boring-notch-dot-relay.ext-joao-junqueira.workers.dev
 Setup and protocol limits: [private relay README](../integrations/dot-relay/README.md).
-The real authenticated message-and-reply acceptance test is still pending.
+A real native message and actual Dot reply were verified inside the notch.
+After refreshing the event binding, a subsequent message received an automatic
+reply after several minutes. Missing event payloads use the private bounded
+pending-message metadata queue and context reads by originating ID. A further
+automatic test recovered an older unanswered message and the new message, then
+left the queue empty. Sustained renewal remains a separate acceptance limit.
+See [verification evidence](VERIFICATION.md).
 
 Agents Status and Dot scrolling bypass the parent swipe handlers while visible;
 stale momentum is suppressed across tab changes. Home gestures retain their

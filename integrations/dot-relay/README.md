@@ -2,14 +2,20 @@
 
 This is a new channel to the owner's actual Dot, not an OpenAI API assistant or
 mirror of existing ChatGPT history. The deployed Worker contains no model API
-call or synthetic response. A real authenticated notch → Dot → reply exchange
-has **not** been verified merely by building or passing protocol tests.
+call or synthetic response. A real authenticated notch → Dot → reply exchange was observed on 12 October
+2026 after prompting the actual Dot in Safari to handle the originating message.
+A later native test received an automatic reply after the event binding was
+refreshed. A further automatic test recovered both an older pending message
+and a new message, leaving the queue empty. Replies can take several minutes;
+these checks do not establish sustained renewal or long-term reliability.
 
 Live status on 2026-10-12: the owner's actual Dot completed MCP Events callback
 verification and `notch_connection_status` reports the subscription active for
 `notch.message.created`. The callback origin was captured from that authenticated
-subscription attempt and added to the exact-origin allowlist. No real notch
-message-to-Dot-reply exchange has yet been confirmed. `/health` keeps
+subscription attempt and added to the exact-origin allowlist. A genuine Dot reply was visibly rendered in the native notch. The event task initially did not run despite HTTP 200 callback acknowledgements.
+After the exact binding was reapplied, a subsequent test received an automatic
+Dot reply. Missing event payloads are recovered through the private pending-ID
+queue described below. `/health` keeps
 `endToEndVerified` set to `false`; subscription readiness alone does not prove
 message delivery or a correlated reply.
 
@@ -137,12 +143,14 @@ redacted, and application errors expose fixed codes only.
 
 ## Verification and license
 
-The 29 Workers runtime tests passed on 2026-10-12; type generation/check and cf build passed.
+The 31 Workers runtime tests passed on 2026-10-12; type generation/check and cf build passed.
 The Workers runtime tests use explicit synthetic fixtures, never a Dot responder
 in deployed code. Tests cover payload bounds, OAuth/owner boundaries, callback
 verification, signing, encrypted persistence, expiry, idempotency and revocation.
-The actual Dot subscription and callback verification are live and active. A
-real message-to-reply exchange remains a separate acceptance step.
+The actual Dot subscription and callback verification are live and active. The actual Dot replied to a real native message after a diagnostic prompt in
+Safari. A later automatic event wake-up also produced a real reply inside the notch;
+a further automatic two-message recovery was verified. Sustained renewal
+remains unverified.
 
 This directory is GPL-3.0-only as part of the modified Boring Notch distribution.
 The maintained OAuth dependency is MIT; its notice is in `licenses/`. The exact

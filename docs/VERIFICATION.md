@@ -1,4 +1,4 @@
-# Phase 1 verification — 10 October 2026
+# Phase 1 verification — updated 12 October 2026
 
 Base: TheBoredTeam/boring.notch tag `v2.8-rc.2`, commit
 `1fa326d` (latest published pre-release verified through GitHub's release API).
@@ -11,7 +11,7 @@ installed Codex CLI 0.144.6 and Codex Desktop 26.1007.21159.
 | --- | --- |
 | Original feature preservation | Baseline app built before edits; all 102 inherited app tests pass. Home, Shelf, media controls and battery UI remain present. Live now-playing appeared in the notch. Full camera/calendar/notification/OSD and hardware regression coverage is not claimed. |
 | Agents tab | Native UI inspected and visually checked in the expanded notch; Home, Shelf and Agents buttons accessible. Agent Center also opens from the app menu and ⇧⌘A. |
-| Agent tab refinements | The 12 October dashboard uses prominent weekly USED percentages and bars, reset/stale labels, and a 12-week local session-activity calendar. Empty dates are labeled unknown; history is deduplicated and bounded. The 640×330 notch layout keeps usage and activity summaries visible while filters and session rows share one scroll area. Hosted render coverage targets 640×270 content. Agents quota popups retain the notch's existing popover hold. |
+| Agent tab refinements | The 12 October dashboard uses prominent weekly USED percentages and bars, reset/stale labels, and a 12-week local session-activity calendar. Empty dates are labeled unknown; history is deduplicated and bounded. The 640×440 notch layout keeps usage and activity summaries visible while filters and session rows share one scroll area. Hosted render coverage derives its content height from the actual notch size and checks a second session row with an alert present. Agents quota popups retain the notch's existing popover hold. |
 | Quotas | Sandboxed release automatically displayed real Codex weekly allowance and Grok Bot weekly cache with no saved folder grants. ChatGPT's weekly USED card selects Weekly even when a five-hour primary exists; a missing weekly window is unavailable, never replaced with five-hour usage. Synthetic two-window quotas, reset details and filters verified. Unknown/malformed/future values, passed resets, ambiguous Grok accounts and obsolete secondary windows tested. ChatGPT chat limits and Grok Build CLI quota are not covered. |
 | Autodetection | Release UI identified both installed/running apps, showed Automatic monitoring for both, loaded usage and recent Codex sessions through the embedded helper, and omitted Connect local data for each. No folder picker or new OS permission was used. Pausing is persistent; manual connection is reserved for unidentified apps. Fixed-root/provider allowlist and metadata-only wire round-trip are tested. Custom CLI executable locations, unregistered app installs and other Grok Bot versions remain outside verified discovery coverage. |
 | Popup interaction | In the running release, opened ChatGPT weekly details, moved into the popup extending below the notch and used its Open app control without the notch closing. The popup remained present across subsequent inspections. Escape dismissed it and restored normal hover closing. Manual Connect visibility is tested for undetected/installed/running/CLI cases; an undetected real installation was not available on this Mac. |
@@ -93,23 +93,54 @@ pinning remains an acknowledged relay platform limitation.
 
 ## Current UI and live-state check (12 October 2026)
 
-The rebuilt app was visually checked in a 640×330 Agents/Dot notch window. The
-captured screen shows the original Dot avatar, all four tabs, readable weekly
-USED allowance figures and the session activity calendar. This is screenshot
-evidence for layout and displayed data; it does not verify a live Dot exchange.
+The rebuilt app visibly has Home, Shelf, Agents Status and Dot tabs, a robot
+Agents icon and the owner's original Dot avatar. Dot is embedded in the same
+notch, up to 760×450 points. Weekly USED bars show source/reset/freshness details;
+the 12-week local activity calendar labels missing records unknown.
 
-The latest reported suites passed 134 hosted app tests, 20 AgentMonitorCore
-tests, 29 relay runtime tests and four hook tests. Relay type checks and
-production builds also passed. These results supersede the 10 October counts
-above; the 11 October relay count of 27 is historical.
+The latest full hosted suite passed **139 tests**, including 18 Dot tests, with
+zero failures. The monitoring core passed 20 tests, the relay passed 31 runtime
+tests plus type checks, and the hook adapter passed four tests. Universal local
+Release builds succeeded. Counts in the earlier dated sections are historical.
 
-At this check, the native Dot client remains at “Reconnecting.” A real
-send-and-reply round trip is pending while native transport errors are being
-fixed. The 11 October OAuth and “Relay connected” observations describe that
-earlier session and do not establish the current connection or completed live
-chat.
+A real message sent with Return in the native notch was read by the actual Dot
+through its private plugin. Dot sent “Notch connection verified. 7 plus 5 is 12.”
+through `notch_reply`, and that reply was visibly rendered inside the notch.
+That first exchange required a diagnostic prompt in Safari.
 
-The 11 October scrollbar-position check verified that the Agents panel could
-scroll without closing the notch. It did not verify physical mouse-wheel input
-or trackpad momentum. External-display behavior and screen-lock behavior also
-remain unverified.
+A second native test was accepted by the genuine ChatGPT callback with HTTP 200
+on its first attempt (12 October 2026, 07:59:31 UTC). Dot reapplied the exact
+event binding; a third native test was also accepted on its first attempt at
+08:03:33 UTC. The third test then received the actual Dot reply automatically:
+“Event delivery works. 6 plus 8 is 14.” It arrived after several minutes without
+a manual handling prompt for that message. The earlier no-run condition therefore
+does not describe the refreshed binding. Dot reported that its wake-up omitted
+the payload and recovered the originating ID through private diagnostics.
+Callback acceptance is deliberately distinct from processing/reply. Private
+bounded diagnostics retain UUID/status/time only; no message content or callback
+secret/path/response body is exposed. The verified callback origin is pinned to
+`https://connectors.api.openai.com`.
+
+Live Mac checks: Agents scrolling moved its scrollbar from 0 to 0.2797 and back
+to 0 without closing; usage popup opened and dismissed; Return sent; Shift–Return
+inserted a newline; Escape closed Dot; the two-line draft survived reopening and
+tab changes. Native credentials and the pending message survived a restart after
+the owner allowed the macOS Keychain prompt. Ad-hoc rebuilds can require the
+owner to approve Keychain access again.
+
+An incoming automatic reply preserved the older-message scroll position and
+showed an unread badge/new-replies prompt; scrolling to the bottom cleared it.
+A bounded metadata-only pending-message queue was added for missing-payload
+recovery. A fourth native message sent at 08:18:33 UTC triggered automatic
+recovery: Dot answered the older unanswered test first, then replied
+“Queue recovery verified. 11 plus 6 is 17.” Both replies were visible inside
+the notch, with two unread replies shown while Agents Status was selected.
+The authenticated pending queue was empty afterward. No manual handling prompt
+was sent for this fourth test, and no duplicate replies were observed.
+This establishes one automatic backlog recovery, not long-term reliability.
+
+Still unverified: sustained subscription/token renewal, physical trackpad
+momentum, external displays, screen lock and complete notification/focus/IME
+regression behavior. This remains a local development build, not a
+Developer ID signed/notarized public release. Existing callback TLS pinning and
+upstream helper/framework boundaries documented above remain.
