@@ -5,6 +5,14 @@ mirror of existing ChatGPT history. The deployed Worker contains no model API
 call or synthetic response. A real authenticated notch → Dot → reply exchange
 has **not** been verified merely by building or passing protocol tests.
 
+Live status on 2026-10-12: the owner's actual Dot completed MCP Events callback
+verification and `notch_connection_status` reports the subscription active for
+`notch.message.created`. The callback origin was captured from that authenticated
+subscription attempt and added to the exact-origin allowlist. No real notch
+message-to-Dot-reply exchange has yet been confirmed. `/health` keeps
+`endToEndVerified` set to `false`; subscription readiness alone does not prove
+message delivery or a correlated reply.
+
 Only explicitly submitted chat text is relayed. Session metadata, logs and usage
 readings have no route into this module. GitHub numeric owner `39351332` is checked
 at sign-in, token refresh, native/MCP requests and webhook delivery. The owner
@@ -112,11 +120,12 @@ redacted, and application errors expose fixed codes only.
 
 ## Verification and license
 
-The 26 Workers runtime tests passed on 2026-10-11; type generation/check and cf build passed.
+The 29 Workers runtime tests passed on 2026-10-12; type generation/check and cf build passed.
 The Workers runtime tests use explicit synthetic fixtures, never a Dot responder
 in deployed code. Tests cover payload bounds, OAuth/owner boundaries, callback
 verification, signing, encrypted persistence, expiry, idempotency and revocation.
-Real Dot subscription/account setup remains a separate acceptance step.
+The actual Dot subscription and callback verification are live and active. A
+real message-to-reply exchange remains a separate acceptance step.
 
 This directory is GPL-3.0-only as part of the modified Boring Notch distribution.
 The maintained OAuth dependency is MIT; its notice is in `licenses/`. The exact
