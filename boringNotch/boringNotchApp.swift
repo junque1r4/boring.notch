@@ -95,7 +95,7 @@ struct DynamicNotchApp: App {
             }
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
             Button("Agents") { AgentsWindowController.shared.show() }
-            Button("Open Dot Chat") { appDelegate.windowManager.presentDot() }
+            Button("Open Dot Chat") { appDelegate.presentDotChat() }
             Link("Fork source and updates", destination: URL(string: "https://github.com/junque1r4/boring.notch/tree/agents/phase-1")!)
             Button("Restart Boring Notch") {
                 ApplicationRelauncher.restart()
@@ -107,7 +107,7 @@ struct DynamicNotchApp: App {
         }
         .commands {
             CommandMenu("Agents") {
-                Button("Open Dot Chat") { appDelegate.windowManager.presentDot() }
+                Button("Open Dot Chat") { appDelegate.presentDotChat() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
                 Button("Open Agent Center") { AgentsWindowController.shared.show() }
                     .keyboardShortcut("a", modifiers: [.command, .shift])
@@ -159,6 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var viewModels: [String: BoringViewModel] { windowManager.viewModels }
     var window: NSWindow? { windowManager.window }
     var vm: BoringViewModel { windowManager.primaryViewModel }
+
+    @MainActor func presentDotChat() { windowManager.presentDot() }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
