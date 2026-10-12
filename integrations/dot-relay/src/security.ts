@@ -73,11 +73,19 @@ export function callbackURL(value: unknown, allowedOrigins: string): URL {
   let url: URL; try { url = new URL(value); } catch { throw new RelayError("invalid_callback"); }
   if (url.protocol !== "https:" || url.username || url.password || url.hash || (url.port && url.port !== "443")) throw new RelayError("invalid_callback");
   const allow = allowedOrigins.split(",").map(origin => origin.trim()).filter(Boolean);
+  if (!allow.length) throw new RelayError("callback_origin_unconfigured", 503);
   if (!allow.includes(url.origin)) throw new RelayError("callback_origin_not_allowed");
   // Exact operator-approved public ChatGPT origins only. The Worker also enables
   // global_fetch_strictly_public; redirects are rejected on every request.
   if (/^(localhost|.*\.localhost|.*\.local)$/.test(url.hostname) || /^\[|^[\d.]+$/.test(url.hostname)) throw new RelayError("invalid_callback");
   return url;
+}
+export function diagnosticCallbackOrigin(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 2048) return null;
+  let url: URL; try { url = new URL(value); } catch { return null; }
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || (url.port && url.port !== "443")) return null;
+  if (/^(localhost|.*\.localhost|.*\.local)$/.test(url.hostname) || /^\[|^[\d.]+$/.test(url.hostname)) return null;
+  return url.origin;
 }
 export async function encrypt(value: unknown, secret: string, context: string): Promise<string> {
   const raw = unb64(secret); if (raw.length !== 32) throw new RelayError("relay_not_configured",503);

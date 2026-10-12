@@ -77,8 +77,11 @@ standard advertised revocation endpoint (use OAuth discovery).
 
 MCP 2026-07-28 `/mcp` implements `server/discover`, `events/list`,
 `events/subscribe`, `events/unsubscribe`, `tools/list` and `tools/call`.
-`notch_connection_status` validates owner authentication and reports subscription
-readiness without requiring a message ID or disclosing chat content. Call it
+`notch_connection_status` validates owner authentication and reports whether a
+callback allowlist is configured, whether a subscription is active, and the
+latest subscription setup result for up to one hour. The result may include only
+the callback HTTPS origin; it excludes the URL path, query, secret, and chat
+content. Native settings do not expose this diagnostic. Call it
 before subscribing; the native app gates Send until the subscription is active.
 `notch_conversation_context` returns at most 20 originating messages and 64 KiB.
 `notch_reply` requires `messageId`, stable UUID `replyId`, and at most 64 KiB text.

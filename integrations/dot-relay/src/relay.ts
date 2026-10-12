@@ -1,7 +1,7 @@
 // Modified for Boring Notch Agents, 2026-10-11. GPL-3.0-only.
 import { DurableObject } from "cloudflare:workers";
 import type { Env, OwnerProps } from "./env";
-import { boundedText, callbackURL, decrypt, digest, encrypt, equal, EVENT_NAME, object, OWNER_ID, RelayError, REPLY_LIMIT, RETENTION_MS, retryDelay, signedHeaders, signingKey, SUBSCRIPTION_TTL_MS, USER_LIMIT, uuid, textFingerprint } from "./security";
+import { boundedText, callbackURL, decrypt, diagnosticCallbackOrigin, digest, encrypt, equal, EVENT_NAME, object, OWNER_ID, RelayError, REPLY_LIMIT, RETENTION_MS, retryDelay, signedHeaders, signingKey, SUBSCRIPTION_TTL_MS, USER_LIMIT, uuid, textFingerprint } from "./security";
 export type DeliveryStatus = "queued" | "delivered" | "failed" | "replied";
 interface MessageRow extends Record<string,SqlStorageValue> { id:string; cipher:string; hash:string; status:DeliveryStatus; created:number; event_id:string; }
 interface Subscription { id:string; url:string; secret:string; previousSecret?:string; rotatedAt?:number; expires:number; owner:OwnerProps; grantId:string; verifiedAt:number; }
@@ -18,6 +18,7 @@ export class DotRelay extends DurableObject<Env> {
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,cipher TEXT NOT NULL,hash TEXT NOT NULL,status TEXT NOT NULL,created INTEGER NOT NULL,event_id TEXT NOT NULL UNIQUE)`);
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT NOT NULL UNIQUE,message_id TEXT NOT NULL,type TEXT NOT NULL,cipher TEXT NOT NULL,created INTEGER NOT NULL)`);
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS subscription(id TEXT PRIMARY KEY,cipher TEXT NOT NULL,expires INTEGER NOT NULL)`);
+      ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS subscription_diagnostic(id INTEGER PRIMARY KEY CHECK(id=1),cipher TEXT NOT NULL,expires INTEGER NOT NULL)`);
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS pending(message_id TEXT PRIMARY KEY,subscription_id TEXT NOT NULL,attempts INTEGER NOT NULL,next_at INTEGER NOT NULL)`);
     });
   }
@@ -69,7 +70,19 @@ export class DotRelay extends DurableObject<Env> {
     }
     return {events,cursor,subscriptionActive:!!await this.subscription()};
   }
-  async settings(owner:OwnerProps) { this.owner(owner); return {conversationId:"notch",subscriptionActive:!!await this.subscription(),payloadRetentionDays:7,maxUserTextBytes:USER_LIMIT,maxReplyTextBytes:REPLY_LIMIT}; }
+  async settings(owner:OwnerProps) { this.owner(owner); return {conversationId:"notch",subscriptionActive:!!await this.subscription(),callbackAllowlistConfigured:this.env.CALLBACK_ORIGINS.split(",").some(origin=>origin.trim().length>0),payloadRetentionDays:7,maxUserTextBytes:USER_LIMIT,maxReplyTextBytes:REPLY_LIMIT}; }
+  private async recordSubscriptionAttempt(origin:string|null,reason:string) {
+    const expires=Date.now()+60*60*1000;
+    const cipher=await encrypt({origin,reason},this.env.RELAY_ENCRYPTION_KEY,"subscription-diagnostic");
+    this.ctx.storage.sql.exec("INSERT INTO subscription_diagnostic(id,cipher,expires) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET cipher=excluded.cipher,expires=excluded.expires",cipher,expires);
+  }
+  private async lastSubscriptionAttempt() {
+    const row=this.ctx.storage.sql.exec<{cipher:string;expires:number}>("SELECT cipher,expires FROM subscription_diagnostic WHERE id=1").toArray()[0];
+    if(!row)return null;
+    if(row.expires<=Date.now()){this.ctx.storage.sql.exec("DELETE FROM subscription_diagnostic WHERE id=1");return null;}
+    return decrypt<{origin:string|null;reason:string}>(row.cipher,this.env.RELAY_ENCRYPTION_KEY,"subscription-diagnostic");
+  }
+  async readiness(owner:OwnerProps) { return {...await this.settings(owner),lastSubscriptionAttempt:await this.lastSubscriptionAttempt()}; }
   async context(owner:OwnerProps,input:Record<string,unknown>) {
     this.owner(owner); const messageId=uuid(input.messageId);const target=this.message(messageId);
     if(!target || target.created<Date.now()-RETENTION_MS) throw new RelayError("message_not_found",404);
@@ -125,6 +138,8 @@ export class DotRelay extends DurableObject<Env> {
   }
   async subscribe(owner:OwnerProps,grantId:string,input:Record<string,unknown>) {
     this.owner(owner);
+    const deliveryOrigin=diagnosticCallbackOrigin(input.delivery&&typeof input.delivery==="object"&&!Array.isArray(input.delivery)?(input.delivery as Record<string,unknown>).url:null);
+    try {
     const delivery=this.validateSubscription(input,this.env.CALLBACK_ORIGINS);
     const ttl=input.ttlMs===undefined||input.ttlMs===null?SUBSCRIPTION_TTL_MS:input.ttlMs;
     if(typeof ttl!=="number"||!Number.isSafeInteger(ttl)||ttl<1000)throw new RelayError("invalid_ttl");
@@ -147,7 +162,14 @@ export class DotRelay extends DurableObject<Env> {
       this.ctx.storage.sql.exec("DELETE FROM pending");
       this.ctx.storage.sql.exec("INSERT INTO pending SELECT id,?,0,? FROM messages WHERE status='queued' AND created>?",id,Date.now(),Date.now()-RETENTION_MS);
     });
-    await this.schedule();return {id,refreshBefore:iso(sub.expires),cursor:null,truncated:false};
+    await this.schedule();
+    try { await this.recordSubscriptionAttempt(deliveryOrigin,"subscribed"); } catch { /* diagnostics must not change delivery behavior */ }
+    return {id,refreshBefore:iso(sub.expires),cursor:null,truncated:false};
+    } catch(error) {
+      const reason=error instanceof RelayError?error.code:"callback_unavailable";
+      try { await this.recordSubscriptionAttempt(deliveryOrigin,reason); } catch { /* preserve the original subscription error */ }
+      throw error;
+    }
   }
   async unsubscribe(owner:OwnerProps,input:Record<string,unknown>) {
     this.owner(owner);const {url}=this.validateSubscription(input,this.env.CALLBACK_ORIGINS,false);const sub=await this.subscription();
