@@ -1,0 +1,7 @@
+{
+  "dependency": "@cloudflare/workers-oauth-provider",
+  "version": "1.2.3",
+  "source_commit": "602610ce1c11fdb412388713f66a4ca2a45c110d",
+  "source_url": "https://github.com/cloudflare/workers-oauth-provider/tree/v1.2.3",
+  "license": "MIT"
+}

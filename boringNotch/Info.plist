@@ -1,11 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Modified 2026-10-10: separate fork identity and disable upstream replacement. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.junque1r4.boringnotch.agents.dot-oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array><string>boringnotch-agents</string></array>
+		</dict>
+	</array>
 	<key>CFBundleAllowMixedLocalizations</key>
 	<true/>
 	<key>SUBundleName</key>
-	<string>Boring Notch</string>
+	<string>Boring Notch Agents</string>
 	<key>SUEnableAutomaticChecks</key>
 	<false/>
 	<key>NSAudioCaptureUsageDescription</key>
@@ -16,10 +26,6 @@
 	<true/>
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
-	<key>SUFeedURL</key>
-	<string>https://TheBoredTeam.github.io/boring.notch/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>B1Y47t8C/v8ImurYA+9arEsuCrpxwJSviekiflMElbI=</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict/>

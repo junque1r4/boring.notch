@@ -1,3 +1,4 @@
+// Modified 2026-10-10: Agents integration in the junque1r4 GPL-3.0 fork.
 //
 //  Log.swift
 //  boringNotch
@@ -12,7 +13,7 @@
 import OSLog
 
 enum Log {
-    private static let subsystem = "theboringteam.boringnotch"
+    private static let subsystem = "com.junque1r4.boringnotch.agents"
 
     static let general = Logger(subsystem: subsystem, category: "general")
     static let app = Logger(subsystem: subsystem, category: "app")

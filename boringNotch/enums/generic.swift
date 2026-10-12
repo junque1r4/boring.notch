@@ -1,3 +1,4 @@
+// Modified 2026-10-10: Agents integration in the junque1r4 GPL-3.0 fork.
 //
 //  generic.swift
 //  boringNotch
@@ -21,6 +22,8 @@ enum NotchState {
 enum NotchViews {
     case home
     case shelf
+    case agents
+    case dot
 }
 
 enum DownloadIndicatorStyle: String, Defaults.Serializable {

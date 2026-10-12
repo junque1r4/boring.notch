@@ -53,6 +53,11 @@ final class NotchWindowManager {
     // MARK: - Screen lock / unlock
 
     func screenLocked() {
+        // Dot transcripts and composers are dismissed before the lock screen.
+        primaryViewModel.close(forced: true)
+        for context in contexts.values {
+            context.viewModel.close(forced: true)
+        }
         isScreenLocked = true
         if !Defaults[.showOnLockScreen] {
             cleanupWindows()
@@ -130,7 +135,12 @@ final class NotchWindowManager {
     }
 
     private func createBoringNotchWindow(for screen: NSScreen, with viewModel: BoringViewModel) -> NSWindow {
-        let rect = NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height)
+        let rect = NSRect(
+            x: 0,
+            y: 0,
+            width: min(windowSize.width, screen.frame.width),
+            height: min(windowSize.height, screen.frame.height)
+        )
         let styleMask: NSWindow.StyleMask = [.borderless, .nonactivatingPanel, .utilityWindow, .hudWindow]
 
         let window = BoringNotchSkyLightWindow(contentRect: rect, styleMask: styleMask, backing: .buffered, defer: false)
@@ -143,7 +153,7 @@ final class NotchWindowManager {
         }
 
         window.contentView = NSHostingView(
-            rootView: ContentView()
+            rootView: ContentView(openDot: { [weak self] in self?.presentDot() })
                 .environmentObject(viewModel)
         )
 
@@ -333,8 +343,8 @@ final class NotchWindowManager {
         guard Defaults[.displayMode] != .allDisplays || contexts[uuid]?.window != nil else { return }
 
         let screenFrame = screen.frame
-        let notchHeight = openNotchSize.height
-        let notchWidth = openNotchSize.width
+        let notchHeight = maxNotchWindowSize.height
+        let notchWidth = maxNotchWindowSize.width
 
         // Create notch region at the top-center of the screen where an open notch would occupy
         let notchRegion = CGRect(
@@ -400,6 +410,27 @@ final class NotchWindowManager {
             primaryWindow?.orderOut(nil)
         } else {
             primaryWindow?.orderFrontRegardless()
+        }
+    }
+
+    /// Keyboard/menu entry to the same embedded chat used by the fourth tab.
+    func presentDot() {
+        guard !isScreenLocked else { return }
+        let screenID = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.displayUUID
+        let context = screenID.flatMap { contexts[$0] }
+        let model = context?.viewModel ?? primaryViewModel
+        let targetWindow = context?.window ?? primaryWindow
+        guard let targetWindow else { return }
+        model.requestDotKeyboardFocus()
+        BoringViewCoordinator.shared.currentView = .dot
+        model.isDotInputActive = true
+        _ = model.open()
+        NSApp.activate(ignoringOtherApps: true)
+        if let notchWindow = targetWindow as? BoringNotchSkyLightWindow {
+            notchWindow.wantsKeyForTextInput = true
+            notchWindow.makeKeyAndOrderFront(nil)
+        } else {
+            targetWindow.makeKeyAndOrderFront(nil)
         }
     }
 

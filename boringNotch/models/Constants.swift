@@ -1,3 +1,4 @@
+// Modified 2026-10-10: Agents integration in the junque1r4 GPL-3.0 fork.
 //
 //  Constants.swift
 //  boringNotch
@@ -11,7 +12,7 @@ import Defaults
 // MARK: - File System Paths
 let documentsDirectory: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
     ?? URL(fileURLWithPath: NSTemporaryDirectory())
-let bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "theboringteam.boringnotch"
+let bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "com.junque1r4.boringnotch.agents"
 let appVersion = "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""))"
 
 let temporaryDirectory: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first

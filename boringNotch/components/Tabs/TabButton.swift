@@ -1,3 +1,4 @@
+// Modified 2026-10-10: Agents integration in the junque1r4 GPL-3.0 fork.
 //
 //  TabButton.swift
 //  boringNotch
@@ -15,11 +16,19 @@ struct TabButton: View {
 
     var body: some View {
         Button(action: onClick) {
-            Image(systemName: icon)
+            Group {
+                if label == "Agents Status" { AgentsRobotIcon() }
+                else if label == "Dot" {
+                    Image("DotLogo").renderingMode(.original).resizable().scaledToFit().frame(width: 24, height: 24)
+                }
+                else { Image(systemName: icon) }
+            }
                 .padding(.horizontal, 15)
                 .contentShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 

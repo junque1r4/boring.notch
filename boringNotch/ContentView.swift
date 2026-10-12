@@ -1,3 +1,4 @@
+// Modified 2026-10-12: Agents interaction retention and persistent Dot launcher in the GPL-3.0 fork.
 //
 //  ContentView.swift
 //  boringNotchApp
@@ -15,6 +16,8 @@ import SwiftUIIntrospect
 
 @MainActor
 struct ContentView: View {
+    var openDot: () -> Void = {}
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject var vm: BoringViewModel
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
@@ -96,6 +99,19 @@ struct ContentView: View {
         )
     }
 
+    private var dotAccessoryWidth: CGFloat { showsHeader ? 0 : 36 }
+
+    private var dotFlightClearance: CGFloat {
+        let screen = vm.screenUUID.flatMap { NSScreen.screen(withUUID: $0) } ?? NSScreen.main
+        // A user can hide the software notch; the hardware cutout is still there.
+        return max(displayClosedNotchHeight, screen?.safeAreaInsets.top ?? 0) + 20
+    }
+
+    private var surfaceAnimation: Animation? {
+        guard !reduceMotion, Defaults[.enableOpeningAnimation] else { return nil }
+        return vm.notchState == .open ? StandardAnimations.open : StandardAnimations.close
+    }
+
     /// Closed-notch activities, newest first. A notification sits in front of
     /// music, so an incoming message takes over the display; when it expires
     /// it drops out of this list on its own and music comes back — no
@@ -132,7 +148,8 @@ struct ContentView: View {
     /// controlled by its own internal padding instead, which is the honest
     /// lever anyway.
     private var openNotchHeight: CGFloat? {
-        if notificationManager.activeNotification != nil { return 132 }
+        if notificationManager.activeNotification != nil && !vm.isDotChatActive { return 132 }
+        if vm.notchState == .open && coordinator.currentView == .dot { return vm.notchSize.height }
         return Defaults[.compactMode] ? nil : vm.notchSize.height
     }
 
@@ -142,8 +159,16 @@ struct ContentView: View {
     /// header spans the full notch width.
     private var showsHeader: Bool {
         vm.notchState == .open
-            && notificationManager.activeNotification == nil
-            && !Defaults[.compactMode]
+            && (notificationManager.activeNotification == nil || vm.isDotChatActive)
+            && (!Defaults[.compactMode] || coordinator.currentView == .dot)
+    }
+
+    /// Keep the parent gesture installed with the same view identity. Agents
+    /// owns scrolling and selection while its list is actually on screen.
+    private var isVisibleAgentsContent: Bool {
+        vm.notchState == .open && (coordinator.currentView == .agents || coordinator.currentView == .dot)
+            && (!Defaults[.compactMode] || coordinator.currentView == .dot)
+            && (notificationManager.activeNotification == nil || vm.isDotChatActive)
     }
 
     /// The activity currently on top of the stack — what the chin has to be
@@ -281,6 +306,9 @@ struct ContentView: View {
                     // Removed conditional bottom padding when using custom 0 notch to keep layout stable
                     .opacity((isNotchHeightZero && vm.notchState == .closed) ? 0.01 : 1)
 
+                HStack(alignment: .top, spacing: 0) {
+                    Color.clear.frame(width: dotAccessoryWidth, height: 0)
+                        .allowsHitTesting(false)
                 mainLayout
                     // alignment: .top matters here — without it this frame
                     // defaults to centering, and shrinking the height for a
@@ -290,17 +318,9 @@ struct ContentView: View {
                     // top-anchored origin. That's what read as "the notch
                     // sits a bit off the top of the screen."
                     .frame(height: vm.notchState == .open ? openNotchHeight : nil, alignment: .top)
-                    .conditionalModifier(true) { view in
-                        return view
-                            .animation(vm.notchState == .open ? StandardAnimations.open : StandardAnimations.close, value: vm.notchState)
-                            .animation(.smooth, value: gestureProgress)
-                            // Outermost on purpose: it only fires when the
-                            // closed-state content changes (the key is stable
-                            // across open/close), and when several keys change
-                            // at once the innermost animation wins, so the
-                            // open/close springs below keep precedence.
-                            .animation(.smooth(duration: 0.3), value: closedNotchContent)
-                    }
+                    .animation(vm.notchState == .open ? StandardAnimations.open : StandardAnimations.close, value: vm.notchState)
+                    .animation(.smooth, value: gestureProgress)
+                    .animation(.smooth(duration: 0.3), value: closedNotchContent)
                     .contentShape(Rectangle())
                     .onHover { hovering in
                         handleHover(hovering)
@@ -312,22 +332,22 @@ struct ContentView: View {
                     }
                     .conditionalModifier(Defaults[.enableGestures] && !shouldDisplayNowPlayingFallbackNotice) { view in
                         view
-                            .panGesture(direction: .down) { translation, phase in
+                            .panGesture(direction: .down, enabled: !isVisibleAgentsContent) { translation, phase in
                                 handleDownGesture(translation: translation, phase: phase)
                             }
                     }
                     .conditionalModifier(Defaults[.closeGestureEnabled] && Defaults[.enableGestures] && !shouldDisplayNowPlayingFallbackNotice) { view in
                         view
-                            .panGesture(direction: .up) { translation, phase in
+                            .panGesture(direction: .up, enabled: !isVisibleAgentsContent) { translation, phase in
                                 handleUpGesture(translation: translation, phase: phase)
                             }
                     }
                     .conditionalModifier(Defaults[.enableHorizontalMediaGestures] && Defaults[.enableGestures] && !shouldDisplayNowPlayingFallbackNotice) { view in
                         view
-                            .panGesture(direction: .left) { translation, phase in
+                            .panGesture(direction: .left, enabled: !isVisibleAgentsContent) { translation, phase in
                                 handleNextTrackGesture(translation: translation, phase: phase)
                             }
-                            .panGesture(direction: .right) { translation, phase in
+                            .panGesture(direction: .right, enabled: !isVisibleAgentsContent) { translation, phase in
                                 handlePreviousTrackGesture(translation: translation, phase: phase)
                             }
                     }
@@ -349,6 +369,20 @@ struct ContentView: View {
                     .onChange(of: vm.isPopoverActive) { _, _ in
                         scheduleCloseIfNotHovering(overNotch: vm)
                     }
+                    .onChange(of: isVisibleAgentsContent) { _, _ in
+                        gestureProgress = .zero
+                        horizontalMediaGestureTriggered = false
+                        horizontalMediaGestureFeedback = .zero
+                    }
+                    .onChange(of: coordinator.currentView) { _, selected in
+                        if selected != .dot { vm.isDotPinned = false }
+                        if vm.notchState == .open {
+                            vm.notchSize = vm.size(for: selected)
+                        }
+                    }
+                    .onChange(of: vm.isDotChatActive) { _, _ in
+                        scheduleCloseIfNotHovering(overNotch: vm)
+                    }
                     .sensoryFeedback(.alignment, trigger: haptics)
                     .contextMenu {
                         Button("Settings") {
@@ -363,6 +397,22 @@ struct ContentView: View {
                         //                    }
                         //                    .keyboardShortcut("E", modifiers: .command)
                     }
+                    // Geometry only: the actual button remains mounted in
+                    // the overlay as it travels between accessory and tab.
+                    Color.clear
+                        .frame(width: dotAccessoryWidth, height: displayClosedNotchHeight)
+                        .background(alignment: .trailing) {
+                            UnevenRoundedRectangle(bottomTrailingRadius: 12)
+                                .fill(.black)
+                                .frame(width: 56)
+                                .opacity(showsHeader ? 0 : 1)
+                        }
+                        .anchorPreference(key: DotLauncherAnchors.self, value: .bounds) { [.accessory: $0] }
+                        .allowsHitTesting(false)
+                }
+                .animation(surfaceAnimation, value: vm.notchState)
+                .animation(surfaceAnimation, value: showsHeader)
+                .environment(\.sharedDotLauncher, true)
                 if vm.chinHeight > 0 {
                     Rectangle()
                         .fill(Color.black.opacity(0.01))
@@ -372,6 +422,19 @@ struct ContentView: View {
         }
         .padding(.bottom, 8)
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
+        .overlayPreferenceValue(DotLauncherAnchors.self) { anchors in
+            DotLauncherOverlay(anchors: anchors, useTab: showsHeader,
+                               isOpen: vm.notchState == .open,
+                               closedFallbackOffset: CGPoint(
+                                   x: (computedChinWidth - 20) / 2 + cornerRadiusInsets.closed.bottom + 18,
+                                   y: displayClosedNotchHeight / 2),
+                               clearanceY: dotFlightClearance,
+                               motion: surfaceAnimation,
+                               onHover: handleDotHover) {
+                hoverTask?.cancel()
+                openDot()
+            }
+        }
         .ignoresSafeArea(.all)
         .compositingGroup()
         .scaleEffect(
@@ -381,6 +444,12 @@ struct ContentView: View {
         )
         .animation(.smooth, value: gestureProgress)
         .background(dragDetector)
+        .transaction { transaction in
+            if reduceMotion || !Defaults[.enableOpeningAnimation] {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+        }
         .preferredColorScheme(.dark)
         .environmentObject(vm)
         .onChange(of: dropInteraction.anyDropZoneTargeting) { _, isTargeted in
@@ -546,10 +615,10 @@ struct ContentView: View {
                 VStack {
                     // An open notch with a live notification is showing the
                     // reply UI — the usual tabs can wait until it's dismissed.
-                    if let notification = notificationManager.activeNotification {
+                    if let notification = notificationManager.activeNotification, !vm.isDotChatActive {
                         NotificationExpandedView(notification: notification)
                             .id(notification.id)
-                    } else if Defaults[.compactMode] {
+                    } else if Defaults[.compactMode] && coordinator.currentView != .dot {
                         // Player only — no tab switching, so currentView is
                         // ignored here rather than offering a shelf the
                         // compact layout has no room (or tab bar) for.
@@ -575,6 +644,11 @@ struct ContentView: View {
                                 horizontalMediaGestureFeedback: horizontalMediaGestureFeedback,
                                 isHoveringMusicArea: $isHoveringMusicArea
                             )
+                        case .agents:
+                            AgentsView(popoverActive: $vm.isPopoverActive, notchViewModel: vm)
+                        case .dot:
+                            DotChatView(store: .shared, viewModel: vm)
+                            .frame(width: max(0, vm.notchSize.width - 62), height: vm.notchSize.height - 60)
                         case .shelf:
                             ShelfView(
                                 dropInteraction: vm.dropInteraction,
@@ -586,7 +660,7 @@ struct ContentView: View {
                 .transition(
                     .scale(scale: 0.8, anchor: .top)
                     .combined(with: .opacity)
-                    .animation(.smooth(duration: 0.35))
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.35))
                 )
                 .zIndex(1)
                 .allowsHitTesting(vm.notchState == .open)
@@ -843,6 +917,17 @@ extension ContentView {
         }
     }
 
+    private func handleDotHover(_ hovering: Bool) {
+        // A closed Dot hover never opens Home. Once open, keep the same exit
+        // grace period while moving between the shared icon and panel content.
+        if vm.notchState == .open {
+            handleHover(hovering)
+        } else if hovering {
+            hoverTask?.cancel()
+            withAnimation(animationSpring) { isHovering = false }
+        }
+    }
+
     private func handleHover(_ hovering: Bool) {
         if coordinator.firstLaunch { return }
         hoverTask?.cancel()
@@ -857,7 +942,7 @@ extension ContentView {
             // minimumHoverDuration plus an animation, and a notification
             // near the end of its life would expire during that — so it
             // vanished exactly as the notch opened around it.
-            if notificationManager.activeNotification != nil {
+            if notificationManager.activeNotification != nil && !vm.isDotChatActive {
                 notificationManager.holdActive()
             }
 
@@ -932,6 +1017,10 @@ extension ContentView {
     }
 
     private func handleUpGesture(translation: CGFloat, phase: NSEvent.Phase) {
+        guard !isVisibleAgentsContent else {
+            gestureProgress = .zero
+            return
+        }
         guard vm.notchState == .open && !vm.isHoveringCalendar else { return }
 
         withAnimation(animationSpring) {

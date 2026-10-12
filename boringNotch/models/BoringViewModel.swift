@@ -5,6 +5,7 @@
 //  Created by Harsh Vardhan  Goswami  on 04/08/24.
 //
 
+import AppKit
 import Combine
 import Defaults
 import SwiftUI
@@ -27,6 +28,13 @@ final class BoringViewModel: NSObject, ObservableObject {
     @Published var isHoveringCalendar: Bool = false
     /// Keeps the open notch alive while a popover is showing.
     @Published var isPopoverActive: Bool = false
+    /// Dot is an ordinary notch tab, so its visibility follows the selected tab.
+    var isDotChatActive: Bool { notchState == .open && coordinator.currentView == .dot }
+    @Published var isDotInputActive = false
+    /// Per-window hold; explicit close, changing tabs, and screen lock still dismiss.
+    @Published var isDotPinned = false
+    @Published private(set) var dotKeyboardFocusRequested = false
+    private var dotKeyboardReturnApplication: NSRunningApplication?
 
     @Published var screenUUID: String?
 
@@ -91,6 +99,11 @@ final class BoringViewModel: NSObject, ObservableObject {
     }
 
     // Computed property for effective notch height
+    var dotSize: CGSize {
+        let screen = screenUUID.flatMap { NSScreen.screen(withUUID: $0) } ?? NSScreen.main
+        return DotNotchSizing.size(available: screen?.frame.size ?? dotNotchSize)
+    }
+
     var effectiveClosedNotchHeight: CGFloat {
         let currentScreen = screenUUID.flatMap { NSScreen.screen(withUUID: $0) }
         let noNotchAndFullscreen = hideOnClosed && (currentScreen?.safeAreaInsets.top ?? 0 <= 0 || currentScreen == nil)
@@ -176,7 +189,7 @@ final class BoringViewModel: NSObject, ObservableObject {
     func open() -> Bool {
         guard !coordinator.firstLaunch, notchState != .open else { return false }
 
-        self.notchSize = openNotchSize
+        self.notchSize = size(for: coordinator.currentView)
         self.notchState = .open
 
         // Force music information update when notch is opened
@@ -185,11 +198,16 @@ final class BoringViewModel: NSObject, ObservableObject {
         return true
     }
 
-    func close() {
+    @discardableResult
+    func close(forced: Bool = false) -> Bool {
         // Do not close while a share picker or sharing service is active
-        if SharingStateManager.shared.preventNotchClose {
-            return
+        if !forced && (SharingStateManager.shared.preventNotchClose || isDotInputActive || (isDotChatActive && isDotPinned)) {
+            return false
         }
+        isDotInputActive = false
+        isDotPinned = false
+        dotKeyboardFocusRequested = false
+        dotKeyboardReturnApplication = nil
         // The camera is on-demand: the notch closing always ends capture.
         // Intent clears too, so no recovery path can reopen it while closed.
         camera.stopSession()
@@ -209,6 +227,7 @@ final class BoringViewModel: NSObject, ObservableObject {
         } else if !coordinator.openLastTabByDefault {
             coordinator.currentView = .home
         }
+        return true
     }
 
     func closeHello() {
@@ -218,5 +237,26 @@ final class BoringViewModel: NSObject, ObservableObject {
                 close()
             }
         }
+    }
+
+    func size(for view: NotchViews) -> CGSize {
+        switch view {
+        case .home, .shelf: return openNotchSize
+        case .agents: return agentsNotchSize
+        case .dot: return dotSize
+        }
+    }
+
+    func requestDotKeyboardFocus() {
+        dotKeyboardReturnApplication = NSWorkspace.shared.frontmostApplication
+        dotKeyboardFocusRequested = true
+    }
+
+    func consumeDotKeyboardFocusRequest() -> (requested: Bool, previousApplication: NSRunningApplication?) {
+        let request = dotKeyboardFocusRequested
+        let application = dotKeyboardReturnApplication
+        defer { dotKeyboardFocusRequested = false }
+        dotKeyboardReturnApplication = nil
+        return (request, application)
     }
 }

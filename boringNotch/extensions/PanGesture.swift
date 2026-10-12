@@ -4,6 +4,7 @@
 //
 //  Created by Richard Kunkli on 21/08/2024.
 //
+// Modified 2026-10-11. SPDX-License-Identifier: GPL-3.0-only
 
 import AppKit
 import SwiftUI
@@ -20,24 +21,28 @@ enum PanDirection {
 }
 
 extension View {
-    func panGesture(direction: PanDirection, threshold: CGFloat = 4, action: @escaping (CGFloat, NSEvent.Phase) -> Void) -> some View {
+    func panGesture(direction: PanDirection, threshold: CGFloat = 4, enabled: Bool = true,
+                    action: @escaping (CGFloat, NSEvent.Phase) -> Void) -> some View {
         self
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        guard enabled else { return }
                         let s = direction.signed(from: value.translation)
                         guard s > 0, s.magnitude >= threshold else { return }
                         action(s.magnitude, .changed)
                     }
-                    .onEnded { _ in action(0, .ended) }
+                    .onEnded { _ in if enabled { action(0, .ended) } },
+                including: enabled ? .all : .subviews
             )
-            .background(ScrollMonitor(direction: direction, threshold: threshold, action: action))
+            .background(ScrollMonitor(direction: direction, threshold: threshold, enabled: enabled, action: action))
     }
 }
 
 private struct ScrollMonitor: NSViewRepresentable {
     let direction: PanDirection
     let threshold: CGFloat
+    let enabled: Bool
     let action: (CGFloat, NSEvent.Phase) -> Void
 
     func makeNSView(context: Context) -> NSView {
@@ -45,27 +50,49 @@ private struct ScrollMonitor: NSViewRepresentable {
         context.coordinator.installMonitor(on: view)
         return view
     }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.update(direction: direction, threshold: threshold, enabled: enabled, action: action)
+    }
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) { coordinator.removeMonitor() }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(direction: direction, threshold: threshold, action: action)
+        Coordinator(direction: direction, threshold: threshold, enabled: enabled, action: action)
     }
 
     @MainActor final class Coordinator: NSObject {
-        private let direction: PanDirection
-        private let threshold: CGFloat
-        private let action: (CGFloat, NSEvent.Phase) -> Void
+        private var direction: PanDirection
+        private var action: (CGFloat, NSEvent.Phase) -> Void
         private var localMonitor: Any?
-        private var accumulated: CGFloat = 0
-        private var active = false
+        private var state: PanScrollState
         private var endTask: Task<Void, Never>?
-        private let noiseThreshold: CGFloat = 0.2
 
-        init(direction: PanDirection, threshold: CGFloat, action: @escaping (CGFloat, NSEvent.Phase) -> Void) {
+        init(direction: PanDirection, threshold: CGFloat, enabled: Bool,
+             action: @escaping (CGFloat, NSEvent.Phase) -> Void) {
             self.direction = direction
-            self.threshold = threshold
             self.action = action
+            self.state = PanScrollState(enabled: enabled, threshold: threshold)
+        }
+
+        func update(direction: PanDirection, threshold: CGFloat, enabled: Bool,
+                    action: @escaping (CGFloat, NSEvent.Phase) -> Void) {
+            let wasEnabled = state.enabled
+            self.direction = direction
+            self.action = action
+            state.update(enabled: enabled, threshold: threshold, now: ProcessInfo.processInfo.systemUptime)
+            if wasEnabled && !enabled {
+                endTask?.cancel()
+                endTask = nil
+                scheduleEndTimeout()
+            }
+        }
+
+        private func emit(_ event: PanScrollState.Action?) {
+            guard let event, state.enabled else { return }
+            switch event.phase {
+            case .began: action(event.translation, .began)
+            case .changed: action(event.translation, .changed)
+            case .ended: action(event.translation, .ended)
+            }
         }
 
         private func scheduleEndTimeout() {
@@ -75,13 +102,8 @@ private struct ScrollMonitor: NSViewRepresentable {
                 // If no new scroll event arrives within this window, consider the gesture ended.
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled else { return }
-                if active {
-                    action(accumulated.magnitude, .ended)
-                } else {
-                    action(0, .ended)
-                }
-                active = false
-                accumulated = 0
+                let event = state.finishIdle(now: ProcessInfo.processInfo.systemUptime)
+                emit(event)
             }
         }
 
@@ -102,31 +124,18 @@ private struct ScrollMonitor: NSViewRepresentable {
                 self.localMonitor = nil
             }
 
-            accumulated = 0
-            active = false
+            state.reset()
             endTask?.cancel()
             endTask = nil
         }
 
         private func handleScroll(_ event: NSEvent) {
-            if event.phase == .ended || event.momentumPhase == .ended {
-                if active {
-                    action(accumulated.magnitude, .ended)
-                } else {
-                    action(0, .ended)
-                }
-                active = false
-                accumulated = 0
-                return
-            }
-
             // Only consider scroll events that are primarily along the configured axis.
             let absDX = abs(event.scrollingDeltaX)
             let absDY = abs(event.scrollingDeltaY)
             // Require the movement along the gesture axis to be at least 1.5x the orthogonal axis.
             let axisDominanceFactor: CGFloat = 1.5
             let isAxisDominant: Bool = direction.isHorizontal ? (absDX >= axisDominanceFactor * absDY) : (absDY >= axisDominanceFactor * absDX)
-            guard isAxisDominant else { return }
 
             // Determine whether to normalize system deltas to device (physical) direction.
             let deviceDirectionMultiplier: CGFloat = Defaults[.normalizeGestureDirection] ? (event.isDirectionInvertedFromDevice ? 1 : -1) : 1
@@ -140,23 +149,16 @@ private struct ScrollMonitor: NSViewRepresentable {
             let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
             let delta = rawDelta * scale
 
-            guard delta.magnitude > noiseThreshold else {
-                scheduleEndTimeout()
+            let ends = event.phase == .ended || event.momentumPhase == .ended || event.phase == .cancelled
+            let callback = state.receive(delta: isAxisDominant ? delta : nil, begins: event.phase == .began,
+                                         ends: ends, now: ProcessInfo.processInfo.systemUptime)
+            emit(callback)
+            if ends && !state.suppressingSequence && state.enabled {
+                endTask?.cancel()
+                endTask = nil
                 return
             }
-
-            if delta > 0 {
-                accumulated += delta
-            } else {
-                accumulated = 0
-            }
-
-            if !active && accumulated >= threshold {
-                active = true
-                action(accumulated, .began)
-            } else if active {
-                action(accumulated, .changed)
-            }
+            guard isAxisDominant || state.suppressingSequence || !state.enabled else { return }
             // Schedule a timeout to end the gesture if no further scroll events arrive.
             scheduleEndTimeout()
         }

@@ -1,3 +1,4 @@
+// Modified 2026-10-10: Agents integration in the junque1r4 GPL-3.0 fork.
 import Foundation
 import Cocoa
 import AsyncXPCConnection
@@ -26,7 +27,7 @@ final class XPCHelperClient: NSObject, ObservableObject {
         super.init()
     }
 
-    private let serviceName = "theboringteam.boringnotch.BoringNotchXPCHelper"
+    private let serviceName = "com.junque1r4.boringnotch.agents.BoringNotchXPCHelper"
 
     /// Coarse, UI-friendly view of helper connectivity. Flips to false from
     /// the connection's interruption/invalidation handlers so a crashed

@@ -1,3 +1,4 @@
+// Modified 2026-10-10: Agents integration in the junque1r4 GPL-3.0 fork.
 //
 //  boringNotchApp.swift
 //  boringNotchApp
@@ -64,7 +65,7 @@ struct DynamicNotchApp: App {
         // Initialize the settings window controller with the updater controller
         SettingsWindowController.shared.setUpdaterController(updaterController)
 
-        let updaterController = self.updaterController
+        guard !BoringAppExecution.isTestHost else { return }
         Task { @MainActor in
             let sourceURL = Bundle.main.bundleURL
             if let destinationURL = LegacyAppBundleMigration.destinationURL(for: sourceURL) {
@@ -80,7 +81,9 @@ struct DynamicNotchApp: App {
                 }
                 NSLog("Failed to migrate legacy Boring Notch app bundle at %@", sourceURL.path)
             }
-            updaterController.startUpdater()
+            // Fork builds deliberately leave Sparkle stopped: the upstream
+            // feed would replace the Agents fork with the original application.
+            _ = AgentMonitor.shared
         }
     }
 
@@ -92,7 +95,9 @@ struct DynamicNotchApp: App {
                 }
             }
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
-            CheckForUpdatesView(updater: updaterController.updater)
+            Button("Agents") { AgentsWindowController.shared.show() }
+            Button("Open Dot Chat") { appDelegate.presentDotChat() }
+            Link("Fork source and updates", destination: URL(string: "https://github.com/junque1r4/boring.notch/tree/agents/phase-1")!)
             Button("Restart Boring Notch") {
                 ApplicationRelauncher.restart()
             }
@@ -100,6 +105,14 @@ struct DynamicNotchApp: App {
                 NSApplication.shared.terminate(self)
             }
             .keyboardShortcut(KeyEquivalent("Q"), modifiers: .command)
+        }
+        .commands {
+            CommandMenu("Agents") {
+                Button("Open Dot Chat") { appDelegate.presentDotChat() }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+                Button("Open Agent Center") { AgentsWindowController.shared.show() }
+                    .keyboardShortcut("a", modifiers: [.command, .shift])
+            }
         }
     }
 }
@@ -148,6 +161,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow? { windowManager.window }
     var vm: BoringViewModel { windowManager.primaryViewModel }
 
+    @MainActor func presentDotChat() { windowManager.presentDot() }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
@@ -162,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        guard !BoringAppExecution.isTestHost else { return }
         if LegacyAppBundleMigration.isRelaunching { return }
 
         // Flush debounced shelf persistence to avoid losing recent changes
@@ -203,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !BoringAppExecution.isTestHost else { return }
         SettingsWindowController.shared.setCamera(camera)
         migrateDisplayModeIfNeeded()
 

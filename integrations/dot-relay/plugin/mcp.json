@@ -1,0 +1,4 @@
+{
+ "$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+ "mcpServers":{"notch-dot":{"type":"streamable-http","url":"https://boring-notch-dot-relay.ext-joao-junqueira.workers.dev/mcp","extensions":{"com.openai":{"auth":{"type":"oauth","client":{"mode":"cimd"},"baseScopes":["notch:context","notch:reply","notch:subscribe","offline_access"]}}}}}
+}

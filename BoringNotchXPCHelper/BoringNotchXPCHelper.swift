@@ -1,3 +1,4 @@
+// Modified 2026-10-10: allowlisted Agents metadata endpoint. SPDX-License-Identifier: GPL-3.0-only
 //
 //  BoringNotchXPCHelper.swift
 //  BoringNotchXPCHelper
@@ -8,9 +9,32 @@
 import AppKit
 import ApplicationServices
 import IOKit
+import Darwin
 
 class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
     private weak var connection: NSXPCConnection?
+    private let agentReader = AutomaticAgentReader(home: URL(fileURLWithPath: String(cString: getpwuid(getuid()).pointee.pw_dir)))
+
+    @objc func readAgentSnapshot(providerID: String, with reply: @escaping (Data?) -> Void) {
+        // This new endpoint belongs only to the enclosing app, even though
+        // the inherited helper also serves unrelated original features.
+        guard let connection, connection.effectiveUserIdentifier == getuid(),
+              ["codex", "grok-bot"].contains(providerID), agentCallerIsEnclosingApp(connection) else { reply(nil); return }
+        Task {
+            guard let snapshot = await agentReader.snapshot(providerID: providerID, at: Date()),
+                  let data = try? JSONEncoder().encode(snapshot), data.count <= 262_144 else { reply(nil); return }
+            reply(data)
+        }
+    }
+
+    private func agentCallerIsEnclosingApp(_ connection: NSXPCConnection) -> Bool {
+        let appURL = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        guard let app = Bundle(url: appURL), app.bundleIdentifier == "com.junque1r4.boringnotch.agents",
+              let executable = app.executableURL else { return false }
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(connection.processIdentifier, &buffer, UInt32(buffer.count)) > 0 else { return false }
+        return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath() == executable.resolvingSymlinksInPath()
+    }
 
     private let lunarStateQueue = DispatchQueue(label: "BoringNotchXPCHelper.lunar.state")
     private let lunarExecutableURL = URL(fileURLWithPath: "/Applications/Lunar.app/Contents/MacOS/Lunar")

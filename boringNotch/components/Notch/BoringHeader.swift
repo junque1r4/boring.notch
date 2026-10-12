@@ -1,3 +1,4 @@
+// Modified 2026-10-10: Agents integration in the junque1r4 GPL-3.0 fork.
 //
 //  BoringHeader.swift
 //  boringNotch
@@ -16,7 +17,7 @@ struct BoringHeader: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack {
-                if (!shelfState.isEmpty || coordinator.alwaysShowTabs) && Defaults[.boringShelf] {
+                if vm.notchState == .open {
                     TabSelectionView()
                 } else if vm.notchState == .open {
                     EmptyView()
