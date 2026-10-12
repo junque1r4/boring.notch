@@ -29,3 +29,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Personal Dot avatar (12 October 2026)
+
+`Assets.xcassets/DotLogo.imageset/DotLogo.png` is the original 512 × 512
+transparent avatar exported from the owner's configured Dot, “chati,” in ChatGPT
+using Safari's Web Archive export. It is included at the owner's request to
+identify their private Dot. The pixels are unmodified: no generated replacement,
+tracing, or generic triangle was substituted. SHA-256:
+`03e327aaa152e333293271f20cf1617ed20b1438ddbe8cba8c6509d7160460fd`.
+The export's conversations and other page resources are not included. ChatGPT
+and Dot names identify the integration; this fork is not endorsed by OpenAI.
