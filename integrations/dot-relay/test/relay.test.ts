@@ -38,7 +38,32 @@ describe("payload and destination boundaries",()=>{
 });
 describe("persistent private channel",()=>{
  it("accepts stable message IDs once and rejects changed content",async()=>{const relay=stub(),input=message();const first=await relay.accept(owner,input);expect(first.status).toBe("queued");expect(await relay.accept(owner,input)).toEqual(first);await rejectsInDO(relay,instance=>instance.accept(owner,{...input,text:"changed"}));expect((await relay.events(owner,0)).events).toHaveLength(1);});
- it("enforces owner boundaries on all private operations",async()=>{const relay=stub(),other={...owner,githubId:"1"};await rejectsInDO(relay,instance=>instance.accept(other,message()));await rejectsInDO(relay,instance=>instance.events(other,0));await rejectsInDO(relay,instance=>instance.settings(other));await rejectsInDO(relay,instance=>instance.revoke(other));});
+ it("enforces owner boundaries on all private operations",async()=>{const relay=stub(),other={...owner,githubId:"1"};await rejectsInDO(relay,instance=>instance.accept(other,message()));await rejectsInDO(relay,instance=>instance.events(other,0));await rejectsInDO(relay,instance=>instance.settings(other));await rejectsInDO(relay,instance=>instance.readiness(other));await rejectsInDO(relay,instance=>instance.revoke(other));});
+ it("returns a bounded oldest-first pending ID queue without message content",async()=>{
+  const relay=stub(),items=Array.from({length:23},()=>message()),created=Date.now()-30000;
+  for(const item of items)await relay.accept(owner,item);
+  await runInDurableObject(relay,async(_instance:DotRelay,state)=>{
+   items.forEach((item,index)=>state.storage.sql.exec("UPDATE messages SET created=? WHERE id=?",created+index,item.messageId));
+   state.storage.sql.exec("UPDATE messages SET status='failed' WHERE id=?",items[0].messageId);
+   state.storage.sql.exec("UPDATE messages SET status='replied' WHERE id=?",items[1].messageId);
+   state.storage.sql.exec("UPDATE messages SET created=? WHERE id=?",Date.now()-RETENTION_MS-1,items[2].messageId);
+   state.storage.sql.exec("UPDATE messages SET status='delivered' WHERE id=?",items[4].messageId);
+  });
+  const readiness=await relay.readiness(owner);
+  expect(readiness.pendingNativeMessages).toHaveLength(20);
+  expect(readiness.pendingNativeMessages.map(item=>item.messageId)).toEqual(items.slice(3,23).map(item=>item.messageId));
+  expect(readiness.pendingNativeMessages[1].status).toBe("delivered");
+  expect(readiness.hasMorePending).toBe(false);
+  expect(JSON.stringify(readiness.pendingNativeMessages)).not.toContain("fixture message");
+  expect(Object.keys(readiness.pendingNativeMessages[0]).sort()).toEqual(["createdAt","messageId","status"]);
+  await relay.reply(owner,{messageId:items[3].messageId,replyId:crypto.randomUUID(),text:"fixture reply"});
+  const afterReply=await relay.readiness(owner);
+  expect(afterReply.pendingNativeMessages.map(item=>item.messageId)).not.toContain(items[3].messageId);
+ });
+ it("signals additional pending messages beyond the readiness queue limit",async()=>{
+  const relay=stub(),items=Array.from({length:21},()=>message());for(const item of items)await relay.accept(owner,item);
+  const readiness=await relay.readiness(owner);expect(readiness.pendingNativeMessages).toHaveLength(20);expect(readiness.hasMorePending).toBe(true);
+ });
  it("ties one deduplicated actual reply to an originating message",async()=>{const relay=stub(),input=message();await relay.accept(owner,input);const reply={messageId:input.messageId,replyId:crypto.randomUUID(),text:"fixture test tool reply"};const first=await relay.reply(owner,reply);expect(await relay.reply(owner,reply)).toEqual(first);await rejectsInDO(relay,instance=>instance.reply(owner,{...reply,replyId:crypto.randomUUID()}));await rejectsInDO(relay,instance=>instance.reply(owner,{...reply,messageId:crypto.randomUUID()}));const events=await relay.events(owner,0);expect(events.events.filter(event=>event.type==="reply")).toHaveLength(1);expect((await relay.accept(owner,input)).status).toBe("replied");});
  it("keeps encrypted storage private and seven-day payloads expire",async()=>{const relay=stub(),input=message();await relay.accept(owner,input);await runInDurableObject(relay,async(_instance:DotRelay,state)=>{const row=state.storage.sql.exec<{cipher:string}>("SELECT cipher FROM messages").one();expect(row.cipher).not.toContain(input.text);state.storage.sql.exec("UPDATE messages SET created=?",Date.now()-RETENTION_MS-1);state.storage.sql.exec("UPDATE events SET created=?",Date.now()-RETENTION_MS-1);});expect((await relay.events(owner,0)).events).toHaveLength(0);await rejectsInDO(relay,instance=>instance.context(owner,{messageId:input.messageId}));});
  it("verifies callback ownership before storing a subscription",async()=>{const relay=stub(),input=subscription();outbound.get("https://receiver.example.com").intercept({path:"/callback",method:"POST"}).reply(200,(options:{body:string})=>({challenge:JSON.parse(options.body as string).challenge}));const result=await relay.subscribe(owner,"grant-fixture",input);expect(result.id).toMatch(/^sub_/);expect((await relay.settings(owner)).subscriptionActive).toBe(true);await relay.unsubscribe(owner,input);expect((await relay.settings(owner)).subscriptionActive).toBe(false);});

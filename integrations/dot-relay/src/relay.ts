@@ -10,6 +10,7 @@ interface PendingRow extends Record<string,SqlStorageValue> { message_id:string;
 type DeliveryDiagnosticStatus = "accepted"|"retrying"|"failed"|"revoked";
 interface DeliveryDiagnostic { messageId:string;callbackHTTPStatus:number|null;time:string;attempts:number;status:DeliveryDiagnosticStatus; }
 interface MessageStatusSummary { messageId:string;status:DeliveryStatus;createdAt:string; }
+const PENDING_NATIVE_LIMIT=20;
 export interface RelayEvent { sequence:number;eventId:string;messageId:string;type:"delivery"|"reply";status?:DeliveryStatus;text?:string;createdAt:string; }
 const iso = (value:number) => new Date(value).toISOString();
 
@@ -104,7 +105,15 @@ export class DotRelay extends DurableObject<Env> {
     const row=this.ctx.storage.sql.exec<{id:string;status:DeliveryStatus;created:number}>("SELECT id,status,created FROM messages ORDER BY created DESC,rowid DESC LIMIT 1").toArray()[0];
     return row?{messageId:row.id,status:row.status,createdAt:iso(row.created)}:null;
   }
-  async readiness(owner:OwnerProps) { return {...await this.settings(owner),lastSubscriptionAttempt:await this.lastSubscriptionAttempt(),lastDeliveryAttempt:await this.lastDeliveryAttempt(),lastNativeMessage:this.latestMessageStatus()}; }
+  private pendingNativeMessages() {
+    const now=Date.now();
+    const rows=this.ctx.storage.sql.exec<{id:string;status:DeliveryStatus;created:number}>(
+      "SELECT id,status,created FROM messages WHERE status IN ('queued','delivered') AND created>? ORDER BY created ASC,rowid ASC LIMIT ?",
+      now-RETENTION_MS,PENDING_NATIVE_LIMIT+1
+    ).toArray();
+    return {messages:rows.slice(0,PENDING_NATIVE_LIMIT).map(row=>({messageId:row.id,status:row.status,createdAt:iso(row.created)})),hasMorePending:rows.length>PENDING_NATIVE_LIMIT};
+  }
+  async readiness(owner:OwnerProps) { const pending=this.pendingNativeMessages();return {...await this.settings(owner),lastSubscriptionAttempt:await this.lastSubscriptionAttempt(),lastDeliveryAttempt:await this.lastDeliveryAttempt(),lastNativeMessage:this.latestMessageStatus(),pendingNativeMessages:pending.messages,hasMorePending:pending.hasMorePending}; }
   async context(owner:OwnerProps,input:Record<string,unknown>) {
     this.owner(owner); const messageId=uuid(input.messageId);const target=this.message(messageId);
     if(!target || target.created<Date.now()-RETENTION_MS) throw new RelayError("message_not_found",404);

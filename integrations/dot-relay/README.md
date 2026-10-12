@@ -101,6 +101,13 @@ settings do not expose these diagnostics. Call it before subscribing; the native
 app gates Send until the subscription is active. A 2xx callback response
 confirms receipt by ChatGPT only; it does not prove that Dot processed the event
 or produced a reply.
+If an event handler cannot access a delivered event payload, readiness also
+includes up to 20 oldest unreplied message UUID/status/time summaries younger
+than seven days, plus `hasMorePending`; it never includes message text. Recover
+these in oldest-first order by reading `notch_conversation_context` for each
+UUID and replying with a stable reply ID. A `message_already_replied` conflict
+means that originating message is complete and should be skipped. Failed,
+replied, and expired messages are excluded from this queue.
 `notch_conversation_context` returns at most 20 originating messages and 64 KiB.
 `notch_reply` requires `messageId`, stable UUID `replyId`, and at most 64 KiB text.
 It accepts one response per originating send and deduplicates retries.
