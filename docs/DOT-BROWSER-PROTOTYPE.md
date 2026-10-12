@@ -51,6 +51,9 @@ circles and one yellow triangle. The question does not state the answer.
 ## Results recorded so far
 
 - Signed Release build and deep strict signature verification passed.
+- After restoring the ordinary build from the offline diagnostic, the app
+  restarted, loaded the real ChatGPT website and showed `Relay connected` in
+  Notch chat. No Keychain prompt was observed during this rebuild/restart.
 - 56 focused hosted tests passed: test-host isolation, relay chat, browser navigation policy,
   scrolling, pin/geometry and launcher/motion regression suites.
 - The prototype visibly loaded ChatGPT inside the notch. An unauthenticated
