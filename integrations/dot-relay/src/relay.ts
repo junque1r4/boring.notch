@@ -7,6 +7,9 @@ interface MessageRow extends Record<string,SqlStorageValue> { id:string; cipher:
 interface Subscription { id:string; url:string; secret:string; previousSecret?:string; rotatedAt?:number; expires:number; owner:OwnerProps; grantId:string; verifiedAt:number; }
 interface EventRow extends Record<string,SqlStorageValue> { sequence:number; event_id:string; message_id:string; type:"delivery"|"reply"; cipher:string; created:number; }
 interface PendingRow extends Record<string,SqlStorageValue> { message_id:string; subscription_id:string; attempts:number; next_at:number; }
+type DeliveryDiagnosticStatus = "accepted"|"retrying"|"failed"|"revoked";
+interface DeliveryDiagnostic { messageId:string;callbackHTTPStatus:number|null;time:string;attempts:number;status:DeliveryDiagnosticStatus; }
+interface MessageStatusSummary { messageId:string;status:DeliveryStatus;createdAt:string; }
 export interface RelayEvent { sequence:number;eventId:string;messageId:string;type:"delivery"|"reply";status?:DeliveryStatus;text?:string;createdAt:string; }
 const iso = (value:number) => new Date(value).toISOString();
 
@@ -19,6 +22,7 @@ export class DotRelay extends DurableObject<Env> {
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,event_id TEXT NOT NULL UNIQUE,message_id TEXT NOT NULL,type TEXT NOT NULL,cipher TEXT NOT NULL,created INTEGER NOT NULL)`);
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS subscription(id TEXT PRIMARY KEY,cipher TEXT NOT NULL,expires INTEGER NOT NULL)`);
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS subscription_diagnostic(id INTEGER PRIMARY KEY CHECK(id=1),cipher TEXT NOT NULL,expires INTEGER NOT NULL)`);
+      ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS delivery_diagnostic(id INTEGER PRIMARY KEY CHECK(id=1),cipher TEXT NOT NULL,expires INTEGER NOT NULL)`);
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS pending(message_id TEXT PRIMARY KEY,subscription_id TEXT NOT NULL,attempts INTEGER NOT NULL,next_at INTEGER NOT NULL)`);
     });
   }
@@ -82,7 +86,25 @@ export class DotRelay extends DurableObject<Env> {
     if(row.expires<=Date.now()){this.ctx.storage.sql.exec("DELETE FROM subscription_diagnostic WHERE id=1");return null;}
     return decrypt<{origin:string|null;reason:string}>(row.cipher,this.env.RELAY_ENCRYPTION_KEY,"subscription-diagnostic");
   }
-  async readiness(owner:OwnerProps) { return {...await this.settings(owner),lastSubscriptionAttempt:await this.lastSubscriptionAttempt()}; }
+  private async recordDeliveryAttempt(value:Omit<DeliveryDiagnostic,"time">) {
+    try {
+      const expires=Date.now()+60*60*1000;
+      const diagnostic:DeliveryDiagnostic={...value,time:iso(Date.now())};
+      const cipher=await encrypt(diagnostic,this.env.RELAY_ENCRYPTION_KEY,"delivery-diagnostic");
+      this.ctx.storage.sql.exec("INSERT INTO delivery_diagnostic(id,cipher,expires) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET cipher=excluded.cipher,expires=excluded.expires",cipher,expires);
+    } catch { /* diagnostics must never affect delivery behavior */ }
+  }
+  private async lastDeliveryAttempt():Promise<DeliveryDiagnostic|null> {
+    const row=this.ctx.storage.sql.exec<{cipher:string;expires:number}>("SELECT cipher,expires FROM delivery_diagnostic WHERE id=1").toArray()[0];
+    if(!row)return null;
+    if(row.expires<=Date.now()){this.ctx.storage.sql.exec("DELETE FROM delivery_diagnostic WHERE id=1");return null;}
+    return decrypt<DeliveryDiagnostic>(row.cipher,this.env.RELAY_ENCRYPTION_KEY,"delivery-diagnostic");
+  }
+  private latestMessageStatus():MessageStatusSummary|null {
+    const row=this.ctx.storage.sql.exec<{id:string;status:DeliveryStatus;created:number}>("SELECT id,status,created FROM messages ORDER BY created DESC,rowid DESC LIMIT 1").toArray()[0];
+    return row?{messageId:row.id,status:row.status,createdAt:iso(row.created)}:null;
+  }
+  async readiness(owner:OwnerProps) { return {...await this.settings(owner),lastSubscriptionAttempt:await this.lastSubscriptionAttempt(),lastDeliveryAttempt:await this.lastDeliveryAttempt(),lastNativeMessage:this.latestMessageStatus()}; }
   async context(owner:OwnerProps,input:Record<string,unknown>) {
     this.owner(owner); const messageId=uuid(input.messageId);const target=this.message(messageId);
     if(!target || target.created<Date.now()-RETENTION_MS) throw new RelayError("message_not_found",404);
@@ -223,17 +245,21 @@ export class DotRelay extends DurableObject<Env> {
       const message=this.message(row.message_id);if(!message||message.status==="replied"||row.subscription_id!==sub.id){this.ctx.storage.sql.exec("DELETE FROM pending WHERE message_id=?",row.message_id);continue;}
       const {text}=await decrypt<{text:string}>(message.cipher,this.env.RELAY_ENCRYPTION_KEY,`message:${message.id}`);
       const body=JSON.stringify({eventId:message.event_id,name:EVENT_NAME,timestamp:iso(message.created),data:{conversationId:"notch",messageId:message.id,text},cursor:null});
+      const attempts=row.attempts+1;
       try {
         const headers=await signedHeaders(sub.secret,message.event_id,body,sub.id);
         if(sub.previousSecret&&Date.now()-(sub.rotatedAt??0)<300000){const old=await signedHeaders(sub.previousSecret,message.event_id,body,sub.id);headers.set("webhook-signature",`${headers.get("webhook-signature")} ${old.get("webhook-signature")}`);}
-        const response=await this.webhook(sub.url,{method:"POST",body,headers});await response.body?.cancel();
+        const response=await this.webhook(sub.url,{method:"POST",body,headers});
+        const diagnosticStatus:DeliveryDiagnosticStatus=response.ok?"accepted":response.status===410?"revoked":response.status===413||(response.status>=400&&response.status<500&&response.status!==408&&response.status!==429)?"failed":attempts>=6?"failed":"retrying";
+        await this.recordDeliveryAttempt({messageId:message.id,callbackHTTPStatus:response.status,attempts,status:diagnosticStatus});
+        try { await response.body?.cancel(); } catch { /* response status is already recorded */ }
         const live=await this.subscription();
         if(!live||live.id!==sub.id)continue;
         if(response.ok){await this.status(message.id,"delivered");this.ctx.storage.sql.exec("DELETE FROM pending WHERE message_id=?",message.id);}
         else if(response.status===410){await this.revoke(sub.owner);break;}
         else if(response.status===413||(response.status>=400&&response.status<500&&response.status!==408&&response.status!==429)){await this.status(message.id,"failed");this.ctx.storage.sql.exec("DELETE FROM pending WHERE message_id=?",message.id);}
         else await this.retry(row);
-      }catch{await this.retry(row);}
+      }catch{await this.retry(row);await this.recordDeliveryAttempt({messageId:message.id,callbackHTTPStatus:null,attempts,status:attempts>=6?"failed":"retrying"});}
     }
     await this.schedule();
   }

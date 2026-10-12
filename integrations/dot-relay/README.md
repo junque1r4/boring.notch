@@ -89,8 +89,18 @@ MCP 2026-07-28 `/mcp` implements `server/discover`, `events/list`,
 callback allowlist is configured, whether a subscription is active, and the
 latest subscription setup result for up to one hour. The result may include only
 the callback HTTPS origin; it excludes the URL path, query, secret, and chat
-content. Native settings do not expose this diagnostic. Call it
-before subscribing; the native app gates Send until the subscription is active.
+content. It also reports the newest native message UUID, delivery state, and
+creation time from metadata already stored in the relay. This summary contains
+no chat content and does not imply an exact HTTP callback status. For attempts
+made after this diagnostic was deployed, it reports the latest outbound webhook
+result for up to one hour: originating message UUID, callback HTTP status (or
+`null` if no HTTP response was received), timestamp, attempt count, and delivery
+category. This diagnostic is encrypted at rest and never includes the callback
+path, query, headers, response body, webhook secret, or message content. Native
+settings do not expose these diagnostics. Call it before subscribing; the native
+app gates Send until the subscription is active. A 2xx callback response
+confirms receipt by ChatGPT only; it does not prove that Dot processed the event
+or produced a reply.
 `notch_conversation_context` returns at most 20 originating messages and 64 KiB.
 `notch_reply` requires `messageId`, stable UUID `replyId`, and at most 64 KiB text.
 It accepts one response per originating send and deduplicates retries.

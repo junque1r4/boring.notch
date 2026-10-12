@@ -15,7 +15,7 @@ const subscription=()=>({name:"notch.message.created",arguments:{conversationId:
 type Fixture={url:string;method:string;status:number;body:unknown};
 const fixtures:Fixture[]=[];
 const outbound={
- activate(){vi.stubGlobal("fetch",async(input:RequestInfo|URL,init?:RequestInit)=>{const url=input instanceof Request?input.url:String(input);const method=init?.method??(input instanceof Request?input.method:"GET");const index=fixtures.findIndex(item=>item.url===url&&item.method===method);if(index<0)throw new Error("Unmatched synthetic outbound request");const fixture=fixtures.splice(index,1)[0];const body=typeof fixture.body==="function"?fixture.body({body:init?.body}):fixture.body;return new Response(typeof body==="string"?body:JSON.stringify(body),{status:fixture.status,headers:{"Content-Type":"application/json"}});});},
+ activate(){vi.stubGlobal("fetch",async(input:RequestInfo|URL,init?:RequestInit)=>{const url=input instanceof Request?input.url:String(input);const method=init?.method??(input instanceof Request?input.method:"GET");const index=fixtures.findIndex(item=>item.url===url&&item.method===method);if(index<0)throw new Error("Unmatched synthetic outbound request");const fixture=fixtures.splice(index,1)[0];const body=typeof fixture.body==="function"?fixture.body({body:init?.body,headers:init?.headers}):fixture.body;return new Response(typeof body==="string"?body:JSON.stringify(body),{status:fixture.status,headers:{"Content-Type":"application/json"}});});},
  deactivate(){vi.unstubAllGlobals();fixtures.splice(0);},disableNetConnect(){},
  assertNoPendingInterceptors(){expect(fixtures).toHaveLength(0);},
  get(origin:string){return {intercept(options:{path:string;method?:string}){return {reply(status:number,body:unknown){fixtures.push({url:origin+options.path,method:options.method??"GET",status,body});}};}};},
@@ -43,7 +43,38 @@ describe("persistent private channel",()=>{
  it("keeps encrypted storage private and seven-day payloads expire",async()=>{const relay=stub(),input=message();await relay.accept(owner,input);await runInDurableObject(relay,async(_instance:DotRelay,state)=>{const row=state.storage.sql.exec<{cipher:string}>("SELECT cipher FROM messages").one();expect(row.cipher).not.toContain(input.text);state.storage.sql.exec("UPDATE messages SET created=?",Date.now()-RETENTION_MS-1);state.storage.sql.exec("UPDATE events SET created=?",Date.now()-RETENTION_MS-1);});expect((await relay.events(owner,0)).events).toHaveLength(0);await rejectsInDO(relay,instance=>instance.context(owner,{messageId:input.messageId}));});
  it("verifies callback ownership before storing a subscription",async()=>{const relay=stub(),input=subscription();outbound.get("https://receiver.example.com").intercept({path:"/callback",method:"POST"}).reply(200,(options:{body:string})=>({challenge:JSON.parse(options.body as string).challenge}));const result=await relay.subscribe(owner,"grant-fixture",input);expect(result.id).toMatch(/^sub_/);expect((await relay.settings(owner)).subscriptionActive).toBe(true);await relay.unsubscribe(owner,input);expect((await relay.settings(owner)).subscriptionActive).toBe(false);});
  it("rejects wrong verification challenge",async()=>{const relay=stub();outbound.get("https://receiver.example.com").intercept({path:"/callback",method:"POST"}).reply(200,{challenge:"wrong"});await rejectsInDO(relay,instance=>instance.subscribe(owner,"grant-fixture",subscription()));expect((await relay.settings(owner)).subscriptionActive).toBe(false);});
- it("delivery receipt differs from actual Dot reply",async()=>{const relay=stub(),input=message(),sub=subscription();outbound.get("https://receiver.example.com").intercept({path:"/callback",method:"POST"}).reply(200,(options:{body:string})=>({challenge:JSON.parse(options.body as string).challenge}));await bindings.OAUTH_KV.put(`grant:${OWNER_ID}:grant-fixture`,JSON.stringify({id:"grant-fixture",userId:OWNER_ID,clientId:"fixture-client",scope:["notch:subscribe"],resource:"https://relay.example.com"}));await relay.subscribe(owner,"grant-fixture",sub);await relay.accept(owner,input);outbound.get("https://api.github.com").intercept({path:"/user"}).reply(200,{id:Number(OWNER_ID)});outbound.get("https://receiver.example.com").intercept({path:"/callback",method:"POST"}).reply(202,"");await runDurableObjectAlarm(relay);const events=await relay.events(owner,0);expect(events.events.at(-1)?.status).toBe("delivered");expect(events.events.some(event=>event.type==="reply")).toBe(false);});
+ it("delivers the documented signed MCP event and records only bounded private delivery metadata",async()=>{
+  const relay=stub(),input=message(),sub=subscription();let eventBody="";let eventHeaders:Headers|null=null;
+  outbound.get("https://receiver.example.com").intercept({path:"/callback",method:"POST"}).reply(200,(options:{body:string})=>({challenge:JSON.parse(options.body).challenge}));
+  await bindings.OAUTH_KV.put(`grant:${OWNER_ID}:wire-grant`,JSON.stringify({id:"wire-grant",userId:OWNER_ID,clientId:"fixture-client",scope:["notch:subscribe"],resource:"https://relay.example.com"}));
+  const subscriptionResult=await relay.subscribe(owner,"wire-grant",sub);await relay.accept(owner,input);
+  outbound.get("https://api.github.com").intercept({path:"/user"}).reply(200,{id:Number(OWNER_ID)});
+  outbound.get("https://receiver.example.com").intercept({path:"/callback",method:"POST"}).reply(202,(options:{body:string;headers:HeadersInit})=>{eventBody=options.body;eventHeaders=new Headers(options.headers);return "";});
+  await runDurableObjectAlarm(relay);
+
+  const event=JSON.parse(eventBody) as {eventId:string;name:string;timestamp:string;data:Record<string,unknown>;cursor:null};
+  expect(Object.keys(event).sort()).toEqual(["cursor","data","eventId","name","timestamp"]);
+  expect(event.name).toBe("notch.message.created");expect(event.data).toEqual({conversationId:"notch",messageId:input.messageId,text:input.text});
+  expect(Number.isNaN(Date.parse(event.timestamp))).toBe(false);expect(event.cursor).toBeNull();
+  const headers=eventHeaders!;expect(headers.get("content-type")).toBe("application/json");
+  expect(headers.get("webhook-id")).toBe(event.eventId);expect(headers.get("X-MCP-Subscription-Id")).toBe(subscriptionResult.id);
+  const signature=headers.get("webhook-signature")!.split(" ")[0].slice(3);
+  const key=await crypto.subtle.importKey("raw",signingKey(sub.delivery.secret),{name:"HMAC",hash:"SHA-256"},false,["verify"]);
+  expect(await crypto.subtle.verify("HMAC",key,Uint8Array.from(atob(signature),char=>char.charCodeAt(0)),
+    new TextEncoder().encode(`${event.eventId}.${headers.get("webhook-timestamp")}.${eventBody}`))).toBe(true);
+
+  const events=await relay.events(owner,0);expect(events.events.at(-1)?.status).toBe("delivered");expect(events.events.some(value=>value.type==="reply")).toBe(false);
+  const readiness=await relay.readiness(owner);expect(readiness.lastNativeMessage).toMatchObject({messageId:input.messageId,status:"delivered"});
+  expect(readiness.lastDeliveryAttempt).toMatchObject({messageId:input.messageId,callbackHTTPStatus:202,attempts:1,status:"accepted"});
+  expect(Number.isNaN(Date.parse(readiness.lastDeliveryAttempt!.time))).toBe(false);
+  const safeDiagnostic=JSON.stringify(readiness.lastDeliveryAttempt);
+  expect(safeDiagnostic).not.toContain(input.text);expect(safeDiagnostic).not.toContain("/callback");expect(safeDiagnostic).not.toContain("whsec_");
+  expect(JSON.stringify(readiness.lastNativeMessage)).not.toContain(input.text);
+  const ciphertext=await runInDurableObject(relay,async(_instance:DotRelay,state)=>state.storage.sql.exec<{cipher:string}>("SELECT cipher FROM delivery_diagnostic WHERE id=1").one().cipher);
+  expect(ciphertext).not.toContain(input.messageId);expect(ciphertext).not.toContain(input.text);
+  await runInDurableObject(relay,async(_instance:DotRelay,state)=>state.storage.sql.exec("UPDATE delivery_diagnostic SET expires=0 WHERE id=1"));
+  expect((await relay.readiness(owner)).lastDeliveryAttempt).toBeNull();
+ });
  it("revoked subscription grant prevents outbound delivery",async()=>{const relay=stub(),input=message();outbound.get("https://receiver.example.com").intercept({path:"/callback",method:"POST"}).reply(200,(options:{body:string})=>({challenge:JSON.parse(options.body as string).challenge}));await relay.subscribe(owner,"missing-grant",subscription());await relay.accept(owner,input);await runDurableObjectAlarm(relay);expect((await relay.settings(owner)).subscriptionActive).toBe(false);expect((await relay.events(owner,0)).events.at(-1)?.status).toBe("failed");});
 });
 describe("HTTP authentication",()=>{
