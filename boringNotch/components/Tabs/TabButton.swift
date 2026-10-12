@@ -16,7 +16,10 @@ struct TabButton: View {
 
     var body: some View {
         Button(action: onClick) {
-            Image(systemName: icon)
+            Group {
+                if label == "Agents Status" { AgentsRobotIcon() }
+                else { Image(systemName: icon) }
+            }
                 .padding(.horizontal, 15)
                 .contentShape(Capsule())
         }

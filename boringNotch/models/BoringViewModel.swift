@@ -27,11 +27,8 @@ final class BoringViewModel: NSObject, ObservableObject {
     @Published var isHoveringCalendar: Bool = false
     /// Keeps the open notch alive while a popover is showing.
     @Published var isPopoverActive: Bool = false
-    // Modified 2026-10-11: interaction ownership is per notch window.
-    @Published private(set) var dotInteractionOwners: Set<UUID> = []
-    var isDotChatActive: Bool { !dotInteractionOwners.isEmpty }
-    func acquireDotInteraction(_ owner: UUID) { dotInteractionOwners.insert(owner) }
-    func releaseDotInteraction(_ owner: UUID) { dotInteractionOwners.remove(owner) }
+    /// Dot is an ordinary notch tab, so its visibility follows the selected tab.
+    var isDotChatActive: Bool { notchState == .open && coordinator.currentView == .dot }
 
     @Published var screenUUID: String?
 
@@ -181,7 +178,7 @@ final class BoringViewModel: NSObject, ObservableObject {
     func open() -> Bool {
         guard !coordinator.firstLaunch, notchState != .open else { return false }
 
-        self.notchSize = openNotchSize
+        self.notchSize = coordinator.currentView == .dot ? dotNotchSize : openNotchSize
         self.notchState = .open
 
         // Force music information update when notch is opened
@@ -190,9 +187,9 @@ final class BoringViewModel: NSObject, ObservableObject {
         return true
     }
 
-    func close() {
+    func close(forced: Bool = false) {
         // Do not close while a share picker or sharing service is active
-        if SharingStateManager.shared.preventNotchClose {
+        if SharingStateManager.shared.preventNotchClose && !forced {
             return
         }
         // The camera is on-demand: the notch closing always ends capture.

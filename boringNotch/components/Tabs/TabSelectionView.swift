@@ -10,7 +10,7 @@ import SwiftUI
 import Defaults
 
 struct TabModel: Identifiable {
-    let id = UUID()
+    var id: String { label }
     let label: String
     let icon: String
     let view: NotchViews
@@ -19,7 +19,8 @@ struct TabModel: Identifiable {
 let tabs = [
     TabModel(label: "Home", icon: "house.fill", view: .home),
     TabModel(label: "Shelf", icon: "tray.fill", view: .shelf),
-    TabModel(label: "Agents", icon: "cpu", view: .agents)
+    TabModel(label: "Agents Status", icon: "", view: .agents),
+    TabModel(label: "Dot", icon: "bubble.left.and.bubble.right.fill", view: .dot)
 ]
 
 struct TabSelectionView: View {
@@ -30,7 +31,7 @@ struct TabSelectionView: View {
         Self.availableTabs(shelfEnabled: shelfEnabled)
     }
     static func availableTabs(shelfEnabled: Bool) -> [TabModel] {
-        shelfEnabled ? tabs : [tabs[0], tabs[2]]
+        shelfEnabled ? tabs : [tabs[0], tabs[2], tabs[3]]
     }
     var body: some View {
         HStack(spacing: 0) {
@@ -57,6 +58,24 @@ struct TabSelectionView: View {
             }
         }
         .clipShape(Capsule())
+    }
+}
+
+struct AgentsRobotIcon: View {
+    var body: some View {
+        ZStack {
+            Capsule().frame(width: 2, height: 4).offset(y: -7)
+            Circle().frame(width: 3, height: 3).offset(y: -10)
+            RoundedRectangle(cornerRadius: 4).stroke(lineWidth: 1.5)
+                .frame(width: 13, height: 10).offset(y: 1)
+            HStack(spacing: 3) {
+                Circle().frame(width: 2, height: 2)
+                Circle().frame(width: 2, height: 2)
+            }.offset(y: 0)
+            Capsule().frame(width: 5, height: 1.5).offset(y: 4)
+        }
+        .frame(width: 17, height: 18)
+        .accessibilityHidden(true)
     }
 }
 

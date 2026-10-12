@@ -1,10 +1,10 @@
-// Modified 2026-10-11. SPDX-License-Identifier: GPL-3.0-only
+// Modified 2026-10-12. SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import SwiftUI
 
-struct DotChatPanelView: View {
+struct DotChatView: View {
     @Bindable var store: DotChatStore
-    let connect: () -> Void
+    let viewModel: BoringViewModel
     let close: () -> Void
     @State private var endpoint = ""
     @State private var setupError: String?
@@ -13,117 +13,215 @@ struct DotChatPanelView: View {
     @State private var editingConnection = false
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack {
-                Image(systemName: "circle.fill").font(.system(size: 13)).foregroundStyle(.cyan)
-                Text("Dot").font(.headline)
-                Spacer()
-                Text(store.connectionState.label).font(.caption).foregroundStyle(.secondary)
-                if store.configuration != nil {
-                    Button { editingConnection.toggle(); endpoint = store.configuration?.origin.absoluteString ?? "" } label: { Image(systemName: "gearshape") }
-                        .buttonStyle(.plain).accessibilityLabel("Private Dot connection settings")
-                }
-                Button(action: close) { Image(systemName: "xmark") }.buttonStyle(.plain)
-                    .accessibilityLabel("Close Dot chat")
-            }
+        VStack(spacing: 8) {
+            DotChatHeader(store: store, close: close, editingConnection: $editingConnection)
             if store.configuration == nil || editingConnection {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Connect your private Dot relay").font(.subheadline.weight(.semibold))
-                    Text("Only messages you send here leave this Mac. Your existing ChatGPT history stays in ChatGPT.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        TextField("https://your-relay.workers.dev", text: $endpoint)
-                            .textFieldStyle(.roundedBorder).accessibilityLabel("Private relay address")
-                        Button("Set up") {
-                            do { try store.configureEndpoint(endpoint); setupError = nil; editingConnection = false; connect() }
-                            catch { setupError = error.localizedDescription }
-                        }.disabled(endpoint.isEmpty)
-                    }
-                    if store.configuration != nil {
-                        Button("Disconnect private relay") { Task { await store.disconnect() } }
-                            .font(.caption).help("Revokes this app's connection. Messages and drafts stay on this Mac.")
-                    }
-                }
+                DotConnectionSetup(store: store, endpoint: $endpoint, setupError: $setupError,
+                    editingConnection: $editingConnection, connect: connect)
             } else if store.connectionState == .signedOut || store.connectionState == .unavailable {
                 Button("Sign in with GitHub", action: connect)
+                    .buttonStyle(.borderedProminent)
             } else if store.connectionState == .connected && !store.subscriptionActive {
                 Text("Waiting for ChatGPT to subscribe. A relay connection alone does not connect Dot.")
                     .font(.caption).foregroundStyle(.orange)
             }
             if let error = setupError ?? store.errorMessage {
                 Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            transcript
+            DotTranscript(store: store, atLatest: $atLatest, viewportHeight: $viewportHeight)
             if !atLatest && store.unreadCount > 0 {
-                Text("New replies below · scroll to the latest message").font(.caption).foregroundStyle(.cyan)
+                Text("New replies below · scroll to the latest message")
+                    .font(.caption).foregroundStyle(.cyan)
             }
-            Divider()
-            if store.pendingMessageID != nil {
-                HStack {
-                    if store.canRetryPending {
-                        Button("Retry receipt") { Task { await store.retryPending() } }
-                            .help("Retries the same message ID; the relay deduplicates it.")
+            DotPendingControls(store: store, setupError: $setupError)
+            DotComposerRow(store: store, close: close)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.black.opacity(0.96), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.14)))
+        .foregroundStyle(.white)
+        .onAppear {
+            DotChatInputFocus.capture()
+            store.setPresentation(visible: true, atLatest: true)
+        }
+        .onDisappear {
+            DotChatInputFocus.release(viewModel: viewModel)
+            store.setPresentation(visible: false, atLatest: false)
+            try? store.flush()
+        }
+        .onChange(of: editingConnection) { _, editing in
+            if editing { endpoint = store.configuration?.origin.absoluteString ?? "" }
+        }
+    }
+
+    private func connect() {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+            setupError = "Open Dot in the notch to continue sign-in."
+            return
+        }
+        Task { await store.connect(presentationAnchor: window) }
+    }
+}
+
+private struct DotChatHeader: View {
+    @Bindable var store: DotChatStore
+    let close: () -> Void
+    @Binding var editingConnection: Bool
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image("DotLogo")
+                .resizable().scaledToFit().frame(width: 25, height: 25)
+                .accessibilityLabel("Dot logo")
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Dot").font(.headline)
+                Text(store.connectionState.label).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if store.configuration != nil {
+                Button {
+                    editingConnection.toggle()
+                } label: { Image(systemName: "gearshape") }
+                    .buttonStyle(.plain).accessibilityLabel("Private Dot connection settings")
+            }
+            Button(action: close) { Image(systemName: "xmark") }
+                .buttonStyle(.plain).accessibilityLabel("Close Dot chat")
+        }
+    }
+}
+
+private struct DotConnectionSetup: View {
+    @Bindable var store: DotChatStore
+    @Binding var endpoint: String
+    @Binding var setupError: String?
+    @Binding var editingConnection: Bool
+    let connect: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Connect your private Dot relay").font(.subheadline.weight(.semibold))
+            Text("Only messages you send here leave this Mac. Your existing ChatGPT history stays in ChatGPT.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField("https://your-relay.workers.dev", text: $endpoint)
+                    .textFieldStyle(.roundedBorder).accessibilityLabel("Private relay address")
+                Button("Set up") {
+                    do {
+                        try store.configureEndpoint(endpoint)
+                        setupError = nil
+                        editingConnection = false
+                        connect()
+                    } catch { setupError = error.localizedDescription }
+                }.disabled(endpoint.isEmpty)
+            }
+            if store.configuration != nil {
+                Button("Disconnect private relay") { Task { await store.disconnect() } }
+                    .font(.caption).help("Revokes this app's connection. Messages and drafts stay on this Mac.")
+            }
+        }
+    }
+}
+
+private struct DotPendingControls: View {
+    @Bindable var store: DotChatStore
+    @Binding var setupError: String?
+
+    var body: some View {
+        if store.pendingMessageID != nil {
+            HStack {
+                if store.canRetryPending {
+                    Button("Retry receipt") { Task { await store.retryPending() } }
+                        .help("Retries the same message ID; the relay deduplicates it.")
+                }
+                Spacer()
+                Button("New message") {
+                    do { try store.abandonPending() }
+                    catch { setupError = error.localizedDescription }
+                }.help("Keeps the pending message and allows another. This does not stop Dot; a later reply can still arrive.")
+            }.font(.caption)
+        }
+    }
+}
+
+private struct DotTranscript: View {
+    @Bindable var store: DotChatStore
+    @Binding var atLatest: Bool
+    @Binding var viewportHeight: CGFloat
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if store.messages.isEmpty {
+                        Text("Your notch conversation will appear here.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center).padding(.top, 16)
                     }
-                    Spacer()
-                    Button("New message") {
-                        do { try store.abandonPending() } catch { setupError = error.localizedDescription }
-                    }.help("Keeps the pending message and allows another. This does not stop Dot; a later reply can still arrive.")
-                }.font(.caption)
+                    ForEach(store.messages) { message in
+                        DotMessageRow(message: message).id(message.id)
+                    }
+                    Color.clear.frame(height: 1).id("latest")
+                        .background(GeometryReader { geometry in
+                            Color.clear.preference(key: DotBottomPreference.self,
+                                value: geometry.frame(in: .named("dotTranscript")).maxY)
+                        })
+                }.padding(.trailing, 3)
             }
+            .coordinateSpace(name: "dotTranscript")
+            .background(GeometryReader { geometry in
+                Color.clear.onAppear { viewportHeight = geometry.size.height }
+                    .onChange(of: geometry.size.height) { _, value in viewportHeight = value }
+            })
+            .onPreferenceChange(DotBottomPreference.self) { bottom in
+                let latest = bottom >= 0 && bottom <= viewportHeight + 20
+                if atLatest != latest { atLatest = latest }
+                store.setPresentation(visible: true, atLatest: latest)
+            }
+            .onAppear { proxy.scrollTo("latest", anchor: .bottom) }
+            .onChange(of: store.messages.count) { _, _ in
+                if atLatest { proxy.scrollTo("latest", anchor: .bottom) }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct DotMessageRow: View {
+    let message: DotChatMessage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(message.role == .user ? "You" : "Dot")
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(message.text).font(.system(size: 13)).textSelection(.enabled)
+            if let delivery = message.delivery {
+                Text(delivery.label).font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(message.role == .user ? Color.white.opacity(0.07) : Color.cyan.opacity(0.07),
+            in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct DotComposerRow: View {
+    @Bindable var store: DotChatStore
+    let close: () -> Void
+
+    var body: some View {
+        VStack(spacing: 4) {
             HStack(alignment: .bottom) {
                 DotComposer(text: $store.draft, send: { Task { await store.sendDraft() } }, close: close)
-                    .frame(height: 68)
+                    .frame(height: 62)
                     .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
                 Button("Send") { Task { await store.sendDraft() } }
                     .disabled(!store.canSend)
             }
             Text("Return sends · Shift–Return adds a line · \(store.draft.utf8.count)/8192 bytes")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
-        }
-        .padding(16).background(.black.opacity(0.96), in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.14)))
-        .foregroundStyle(.white)
-        .onDisappear { store.setPresentation(visible: false, atLatest: false) }
-    }
-
-    private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if store.messages.isEmpty {
-                        Text("Your notch conversation will appear here.").font(.caption).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .center).padding(.top, 16)
-                    }
-                    ForEach(store.messages) { message in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(message.role == .user ? "You" : "Dot").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                            Text(message.text).font(.system(size: 13)).textSelection(.enabled)
-                            if let delivery = message.delivery {
-                                Text(delivery.label).font(.system(size: 10)).foregroundStyle(.secondary)
-                            }
-                        }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(message.role == .user ? Color.white.opacity(0.07) : Color.cyan.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
-                            .id(message.id)
-                    }
-                    Color.clear.frame(height: 1).id("latest")
-                        .background(GeometryReader { geometry in
-                            Color.clear.preference(key: DotBottomPreference.self, value: geometry.frame(in: .named("dotTranscript")).maxY)
-                        })
-                }.padding(.trailing, 3)
-            }.coordinateSpace(name: "dotTranscript")
-                .background(GeometryReader { geometry in
-                    Color.clear.onAppear { viewportHeight = geometry.size.height }
-                        .onChange(of: geometry.size.height) { _, value in viewportHeight = value }
-                })
-                .onPreferenceChange(DotBottomPreference.self) { bottom in
-                    let latest = bottom >= 0 && bottom <= viewportHeight + 20
-                    if atLatest != latest { atLatest = latest }
-                    store.setPresentation(visible: true, atLatest: latest)
-                }
-                .onAppear { proxy.scrollTo("latest", anchor: .bottom) }
-                .onChange(of: store.messages.count) { _, _ in
-                    if atLatest { proxy.scrollTo("latest", anchor: .bottom) }
-                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 }
@@ -133,13 +231,46 @@ private struct DotBottomPreference: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-/// AppKit text input keeps IME marked text intact. An insertNewline command
-/// becomes Send only when composition is finished and Shift is not held.
+/// Tracks key-window focus only while the embedded composer needs text input.
+@MainActor final class DotChatInputFocus {
+    private static weak var previousApplication: NSRunningApplication?
+    fileprivate static weak var inputWindow: BoringNotchSkyLightWindow?
+
+    static func capture() {
+        guard previousApplication == nil else { return }
+        previousApplication = NSWorkspace.shared.frontmostApplication
+    }
+
+    static func release(viewModel _: BoringViewModel) {
+        guard let inputWindow else { return }
+        inputWindow.wantsKeyForTextInput = false
+        if inputWindow.isKeyWindow { inputWindow.resignKey() }
+        self.inputWindow = nil
+    }
+
+    static func restore(for viewModel: BoringViewModel, restoringForegroundApplication: Bool = false) {
+        release(viewModel: viewModel)
+        let application = previousApplication
+        previousApplication = nil
+        if restoringForegroundApplication { application?.activate(options: []) }
+    }
+
+    static func restoreForegroundApplication() {
+        let application = previousApplication
+        previousApplication = nil
+        application?.activate(options: [])
+    }
+}
+
+/// AppKit text input keeps IME marked text intact. Return sends only after
+/// composition ends; Shift–Return remains a line break.
 struct DotComposer: NSViewRepresentable {
     @Binding var text: String
     let send: () -> Void
     let close: () -> Void
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
+
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -162,6 +293,7 @@ struct DotComposer: NSViewRepresentable {
         scroll.documentView = editor
         return scroll
     }
+
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let editor = scroll.documentView as? NSTextView, !editor.hasMarkedText(), editor.string != text else { return }
@@ -169,6 +301,7 @@ struct DotComposer: NSViewRepresentable {
         editor.string = text
         editor.setSelectedRange(NSRange(location: min(selection.location, (text as NSString).length), length: 0))
     }
+
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: DotComposer
         init(_ parent: DotComposer) { self.parent = parent }
@@ -184,14 +317,27 @@ struct DotComposer: NSViewRepresentable {
                 parent.send()
                 return true
             }
-            if commandSelector == #selector(NSResponder.cancelOperation(_:)) { parent.close(); return true }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                parent.close()
+                return true
+            }
             return false
         }
     }
+
     final class ComposerTextView: NSTextView {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let window { DispatchQueue.main.async { [weak self, weak window] in if let self { window?.makeFirstResponder(self) } } }
+            if let window {
+                if let notchWindow = window as? BoringNotchSkyLightWindow {
+                    DotChatInputFocus.capture()
+                    DotChatInputFocus.inputWindow = notchWindow
+                    notchWindow.wantsKeyForTextInput = true
+                }
+                DispatchQueue.main.async { [weak self, weak window] in
+                    if let self { window?.makeFirstResponder(self) }
+                }
+            }
         }
     }
 }

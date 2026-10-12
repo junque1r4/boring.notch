@@ -11,7 +11,11 @@ import SwiftUI
 
 let shadowPadding: CGFloat = 20
 let openNotchSize: CGSize = .init(width: 640, height: 190)
-let windowSize: CGSize = .init(width: openNotchSize.width, height: openNotchSize.height + shadowPadding)
+/// The embedded Dot transcript needs more room than the music and Agents tabs.
+/// The window remains transparent outside the actual notch content.
+let dotNotchSize: CGSize = .init(width: 760, height: 450)
+let maxNotchWindowSize: CGSize = .init(width: dotNotchSize.width, height: dotNotchSize.height + shadowPadding)
+let windowSize: CGSize = maxNotchWindowSize
 let cornerRadiusInsets: (opened: (top: CGFloat, bottom: CGFloat), closed: (top: CGFloat, bottom: CGFloat)) = (opened: (top: 19, bottom: 24), closed: (top: 6, bottom: 14))
 
 /// Compact mode uses a much rounder opened shape than the standard layout

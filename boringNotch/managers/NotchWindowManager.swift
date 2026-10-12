@@ -53,8 +53,13 @@ final class NotchWindowManager {
     // MARK: - Screen lock / unlock
 
     func screenLocked() {
-        // Chat content is never shown on the lock screen.
-        DotChatPanelController.shared.dismiss(restoreFocus: false)
+        // Dot transcripts and composers are dismissed before the lock screen.
+        DotChatInputFocus.restore(viewModel: primaryViewModel)
+        primaryViewModel.close(forced: true)
+        for context in contexts.values {
+            DotChatInputFocus.restore(viewModel: context.viewModel)
+            context.viewModel.close(forced: true)
+        }
         isScreenLocked = true
         if !Defaults[.showOnLockScreen] {
             cleanupWindows()
@@ -335,8 +340,8 @@ final class NotchWindowManager {
         guard Defaults[.displayMode] != .allDisplays || contexts[uuid]?.window != nil else { return }
 
         let screenFrame = screen.frame
-        let notchHeight = openNotchSize.height
-        let notchWidth = openNotchSize.width
+        let notchHeight = maxNotchWindowSize.height
+        let notchWidth = maxNotchWindowSize.width
 
         // Create notch region at the top-center of the screen where an open notch would occupy
         let notchRegion = CGRect(

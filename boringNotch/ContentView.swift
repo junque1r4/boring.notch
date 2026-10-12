@@ -134,6 +134,7 @@ struct ContentView: View {
     /// lever anyway.
     private var openNotchHeight: CGFloat? {
         if notificationManager.activeNotification != nil && !vm.isDotChatActive { return 132 }
+        if vm.notchState == .open && coordinator.currentView == .dot { return dotNotchSize.height }
         return Defaults[.compactMode] ? nil : vm.notchSize.height
     }
 
@@ -150,7 +151,7 @@ struct ContentView: View {
     /// Keep the parent gesture installed with the same view identity. Agents
     /// owns scrolling and selection while its list is actually on screen.
     private var isVisibleAgentsContent: Bool {
-        vm.notchState == .open && coordinator.currentView == .agents
+        vm.notchState == .open && (coordinator.currentView == .agents || coordinator.currentView == .dot)
             && !Defaults[.compactMode] && (notificationManager.activeNotification == nil || vm.isDotChatActive)
     }
 
@@ -363,15 +364,20 @@ struct ContentView: View {
                         horizontalMediaGestureFeedback = .zero
                     }
                     .onChange(of: coordinator.currentView) { _, selected in
-                        if selected != .agents { DotChatPanelController.shared.dismiss(ifOwnedBy: vm) }
+                        if vm.notchState == .open {
+                            vm.notchSize = selected == .dot ? dotNotchSize : openNotchSize
+                        }
+                        if selected != .dot {
+                            DotChatInputFocus.restore(for: vm, restoringForegroundApplication: true)
+                        }
                     }
                     .onChange(of: vm.notchState) { _, state in
-                        if state != .open { DotChatPanelController.shared.dismiss(ifOwnedBy: vm) }
+                        if state != .open { DotChatInputFocus.restore(for: vm) }
                     }
                     .onChange(of: vm.isDotChatActive) { _, _ in
                         scheduleCloseIfNotHovering(overNotch: vm)
                     }
-                    .onDisappear { DotChatPanelController.shared.dismiss(ifOwnedBy: vm) }
+                    .onDisappear { DotChatInputFocus.restore(for: vm) }
                     .sensoryFeedback(.alignment, trigger: haptics)
                     .contextMenu {
                         Button("Settings") {
@@ -600,6 +606,12 @@ struct ContentView: View {
                             )
                         case .agents:
                             AgentsView(popoverActive: $vm.isPopoverActive, notchViewModel: vm)
+                        case .dot:
+                            DotChatView(store: .shared, viewModel: vm) {
+                                DotChatInputFocus.restore(for: vm, restoringForegroundApplication: true)
+                                vm.close()
+                            }
+                            .frame(width: dotNotchSize.width, height: dotNotchSize.height - 60)
                         case .shelf:
                             ShelfView(
                                 dropInteraction: vm.dropInteraction,
