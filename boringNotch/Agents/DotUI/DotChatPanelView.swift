@@ -181,7 +181,7 @@ private struct DotTranscript: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     if store.messages.isEmpty {
                         Text("Your notch conversation will appear here.")
                             .font(.caption).foregroundStyle(.secondary)
@@ -201,7 +201,9 @@ private struct DotTranscript: View {
                             Color.clear.preference(key: DotBottomPreference.self,
                                 value: geometry.frame(in: .named("dotTranscript")).maxY)
                         })
-                }.padding(.trailing, 3)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 10)
             }
             .coordinateSpace(name: "dotTranscript")
             .background(GeometryReader { geometry in
@@ -227,33 +229,71 @@ private struct DotMessageRow: View {
     let message: DotChatMessage
 
     var body: some View {
-        HStack {
-            if message.role == .user { Spacer(minLength: 30) }
-            VStack(alignment: .leading, spacing: 6) {
+        DotMessageLayout(outgoing: message.role == .user) {
+            VStack(alignment: .leading, spacing: 10) {
                 if message.role == .assistant {
                     Image("DotLogo").renderingMode(.original)
-                        .resizable().scaledToFit().frame(width: 17, height: 17)
+                        .resizable().scaledToFit().frame(width: 22, height: 22)
                         .accessibilityLabel("Dot")
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
                 DotMarkdownView(source: message.text)
-                HStack(spacing: 4) {
+                HStack(spacing: 8) {
                     Spacer(minLength: 0)
                     Text(message.createdAt, format: .dateTime.hour().minute())
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                        .font(.system(size: 10)).foregroundStyle(DotBubbleColor.ink.opacity(0.7))
                         .help(message.createdAt.formatted(date: .complete, time: .complete))
                     if message.role == .user, let delivery = message.delivery {
                         DotDeliveryMark(delivery: delivery)
                     }
                 }
             }
-            .padding(.horizontal, 11).padding(.vertical, 9)
-            .containerRelativeFrame(.horizontal, count: 5, span: 4, spacing: 0, alignment: .leading)
-            .frame(maxWidth: 520, alignment: .leading)
-            .background(message.role == .user ? Color.white.opacity(0.085) : Color.cyan.opacity(0.075),
+            .foregroundStyle(DotBubbleColor.ink)
+            .tint(Color(red: 0.06, green: 0.25, blue: 0.42))
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(message.role == .user ? DotBubbleColor.user : DotBubbleColor.assistant,
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-            if message.role == .assistant { Spacer(minLength: 30) }
         }
     }
+}
+
+// Measure the padded content at its natural width, then wrap only when it
+// reaches the transcript's width limit. The row owns alignment, so spacers
+// inside the avatar/footer cannot stretch a short message to the maximum.
+private struct DotMessageLayout: Layout {
+    let outgoing: Bool
+
+    private func rowWidth(_ proposed: CGFloat?, subview: LayoutSubview) -> CGFloat {
+        if let proposed, proposed.isFinite { return max(0, proposed) }
+        return min(520, subview.sizeThatFits(.unspecified).width) / 0.82
+    }
+
+    private func bubbleSize(in width: CGFloat?, subview: LayoutSubview) -> CGSize {
+        let ideal = subview.sizeThatFits(.unspecified)
+        let available = rowWidth(width, subview: subview)
+        let bubbleWidth = min(ideal.width, 520, available * 0.82)
+        let fitted = subview.sizeThatFits(ProposedViewSize(width: bubbleWidth, height: nil))
+        return CGSize(width: bubbleWidth, height: fitted.height)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let bubble = subviews.first else { return .zero }
+        let size = bubbleSize(in: proposal.width, subview: bubble)
+        return CGSize(width: rowWidth(proposal.width, subview: bubble), height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let bubble = subviews.first else { return }
+        let size = bubbleSize(in: bounds.width, subview: bubble)
+        bubble.place(at: CGPoint(x: outgoing ? bounds.maxX - size.width : bounds.minX, y: bounds.minY),
+            anchor: .topLeading, proposal: ProposedViewSize(size))
+    }
+}
+
+private enum DotBubbleColor {
+    static let user = Color(red: 1, green: 204.0 / 255.0, blue: 57.0 / 255.0)
+    static let assistant = Color(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 240.0 / 255.0)
+    static let ink = Color(red: 13.0 / 255.0, green: 13.0 / 255.0, blue: 13.0 / 255.0)
 }
 
 private struct DotDateSeparator: View {
@@ -297,7 +337,7 @@ private struct DotDeliveryMark: View {
             if delivery == .replied { Image(systemName: symbol) }
         }
         .font(.system(size: 9, weight: .semibold))
-        .foregroundStyle(delivery == .failed ? Color.orange : Color.cyan)
+        .foregroundStyle(delivery == .failed ? Color(red: 0.55, green: 0.12, blue: 0.05) : DotBubbleColor.ink)
         .accessibilityElement()
         .accessibilityLabel(label)
         .help(label)

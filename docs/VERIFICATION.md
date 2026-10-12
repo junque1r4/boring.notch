@@ -167,3 +167,18 @@ upstream helper/framework boundaries documented above remain.
 - Screen lock, multiple displays, physical trackpad momentum and full IME/focus
   regression remain the previously documented live-hardware limits. Pinning does
   not override explicit close/tab selection or screen lock.
+
+## 12 October 2026 — Adaptive bubble layout refinement
+
+- Universal local Release rebuilt successfully after changing only the chat view.
+  The build script verified the app signature; `git diff --check` passed.
+- Live Mac inspection confirmed short outgoing messages and short replies shrink
+  to their content; longer paragraphs and numbered lists wrap at the width cap.
+  The original Dot avatar is horizontally centered within the actual reply bubble.
+  Timestamps and receipt marks remain inside the 14pt horizontal/12pt vertical
+  padding. Scrolling between short and long messages kept the pinned chat open.
+- The supplied native-chat reference was converted from its embedded color
+  profile to sRGB: outgoing #FFCC39, reply #F0F0F0, text #0D0D0D.
+- Screenshot: `outputs/Dot-chat-adaptive-bubbles.jpg` in the parent delivery
+  workspace. This visual-only refinement did not rerun the earlier 143-test suite
+  or change/benchmark the relay. Earlier latency and hardware limits still apply.

@@ -63,3 +63,12 @@ See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.
 - Investigated response latency and streamlined the existing actual-Dot task's
   routine prompt. The platform's asynchronous dispatch remains a measured limit.
 - Searched for original Dot animations; no complete distributable bundle found.
+
+## 12 October 2026 — Content-sized chat bubbles
+
+- Size each bubble to its message and footer, wrapping long content at a bounded
+  width instead of stretching every message to the same width.
+- Center the original Dot avatar within each reply and inset timestamps and
+  receipt marks with consistent transcript spacing.
+- Match the supplied native-chat reference with sRGB yellow #FFCC39 for outgoing
+  messages, neutral gray #F0F0F0 for replies, and dark readable text.
