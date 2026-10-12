@@ -5,6 +5,7 @@
 //  Created by Harsh Vardhan  Goswami  on 04/08/24.
 //
 
+import AppKit
 import Combine
 import Defaults
 import SwiftUI
@@ -30,6 +31,8 @@ final class BoringViewModel: NSObject, ObservableObject {
     /// Dot is an ordinary notch tab, so its visibility follows the selected tab.
     var isDotChatActive: Bool { notchState == .open && coordinator.currentView == .dot }
     @Published var isDotInputActive = false
+    @Published private(set) var dotKeyboardFocusRequested = false
+    private var dotKeyboardReturnApplication: NSRunningApplication?
 
     @Published var screenUUID: String?
 
@@ -200,6 +203,8 @@ final class BoringViewModel: NSObject, ObservableObject {
             return false
         }
         isDotInputActive = false
+        dotKeyboardFocusRequested = false
+        dotKeyboardReturnApplication = nil
         // The camera is on-demand: the notch closing always ends capture.
         // Intent clears too, so no recovery path can reopen it while closed.
         camera.stopSession()
@@ -237,5 +242,18 @@ final class BoringViewModel: NSObject, ObservableObject {
         case .agents: return agentsNotchSize
         case .dot: return dotSize
         }
+    }
+
+    func requestDotKeyboardFocus() {
+        dotKeyboardReturnApplication = NSWorkspace.shared.frontmostApplication
+        dotKeyboardFocusRequested = true
+    }
+
+    func consumeDotKeyboardFocusRequest() -> (requested: Bool, previousApplication: NSRunningApplication?) {
+        let request = dotKeyboardFocusRequested
+        let application = dotKeyboardReturnApplication
+        defer { dotKeyboardFocusRequested = false }
+        dotKeyboardReturnApplication = nil
+        return (request, application)
     }
 }

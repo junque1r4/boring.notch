@@ -421,10 +421,17 @@ final class NotchWindowManager {
         let model = context?.viewModel ?? primaryViewModel
         let targetWindow = context?.window ?? primaryWindow
         guard let targetWindow else { return }
+        model.requestDotKeyboardFocus()
         BoringViewCoordinator.shared.currentView = .dot
         model.isDotInputActive = true
         _ = model.open()
-        targetWindow.orderFrontRegardless()
+        NSApp.activate(ignoringOtherApps: true)
+        if let notchWindow = targetWindow as? BoringNotchSkyLightWindow {
+            notchWindow.wantsKeyForTextInput = true
+            notchWindow.makeKeyAndOrderFront(nil)
+        } else {
+            targetWindow.makeKeyAndOrderFront(nil)
+        }
     }
 
     func cleanup() {

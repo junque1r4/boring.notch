@@ -4,7 +4,7 @@ import SwiftUI
 
 struct DotChatView: View {
     @Bindable var store: DotChatStore
-    let viewModel: BoringViewModel
+    @ObservedObject var viewModel: BoringViewModel
     @ObservedObject private var coordinator = BoringViewCoordinator.shared
     @State private var inputFocus = DotChatInputFocus()
     @State private var endpoint = ""
@@ -60,6 +60,9 @@ struct DotChatView: View {
         .background(DotParentWindowReader { inputFocus.attach(to: $0) })
         .onChange(of: coordinator.currentView) { _, selected in
             if selected != .dot { inputFocus.dismiss(restoreForegroundApplication: true) }
+        }
+        .onChange(of: viewModel.dotKeyboardFocusRequested) { _, requested in
+            if requested { inputFocus.focusComposerForKeyboardRequest() }
         }
         .onChange(of: editingConnection) { _, editing in
             if editing { endpoint = store.configuration?.origin.absoluteString ?? "" }
@@ -255,6 +258,7 @@ private struct DotBottomPreference: PreferenceKey {
     private var previousApplication: NSRunningApplication?
     private weak var ownerWindow: NSWindow?
     private weak var viewModel: BoringViewModel?
+    private weak var composer: NSTextView?
     private var localMonitor: Any?
     private var globalMonitor: Any?
     private var keyMonitor: Any?
@@ -265,8 +269,9 @@ private struct DotBottomPreference: PreferenceKey {
     func begin(viewModel: BoringViewModel) {
         self.viewModel = viewModel
         viewModel.isDotInputActive = true
-        previousApplication = NSWorkspace.shared.frontmostApplication
-        shouldFocusComposerOnAppear = viewModel.isMouseHovering()
+        let request = viewModel.consumeDotKeyboardFocusRequest()
+        previousApplication = request.previousApplication ?? NSWorkspace.shared.frontmostApplication
+        shouldFocusComposerOnAppear = request.requested || viewModel.isMouseHovering()
     }
 
     func attach(to window: NSWindow?) {
@@ -311,12 +316,25 @@ private struct DotBottomPreference: PreferenceKey {
         }
     }
 
-    func attachComposer(to window: NSWindow, userInitiated: Bool) -> Bool {
+    func attachComposer(to window: NSWindow, composer: NSTextView, userInitiated: Bool) -> Bool {
         guard let notchWindow = window as? BoringNotchSkyLightWindow else { return false }
         attach(to: notchWindow)
-        guard userInitiated || shouldFocusComposerOnAppear else { return false }
+        self.composer = composer
+        guard userInitiated || shouldFocusComposerOnAppear || viewModel?.dotKeyboardFocusRequested == true else { return false }
         notchWindow.wantsKeyForTextInput = true
         return true
+    }
+
+    func focusComposerForKeyboardRequest() {
+        guard let viewModel else { return }
+        let request = viewModel.consumeDotKeyboardFocusRequest()
+        guard request.requested else { return }
+        if let application = request.previousApplication { previousApplication = application }
+        shouldFocusComposerOnAppear = true
+        guard let notchWindow = ownerWindow as? BoringNotchSkyLightWindow else { return }
+        notchWindow.wantsKeyForTextInput = true
+        notchWindow.makeKeyAndOrderFront(nil)
+        if let composer { notchWindow.makeFirstResponder(composer) }
     }
 
     func dismiss(restoreForegroundApplication: Bool) {
@@ -331,10 +349,12 @@ private struct DotBottomPreference: PreferenceKey {
         globalMonitor = nil
         keyMonitor = nil
         viewModel?.isDotInputActive = false
+        _ = viewModel?.consumeDotKeyboardFocusRequest()
         let application = previousApplication
         previousApplication = nil
         ownerWindow = nil
         viewModel = nil
+        composer = nil
         if restoreForegroundApplication { application?.activate(options: []) }
     }
 
@@ -369,7 +389,7 @@ struct DotComposer: NSViewRepresentable {
     @Binding var text: String
     let send: () -> Void
     let close: () -> Void
-    let inputWindowAttached: (NSWindow, Bool) -> Bool
+    let inputWindowAttached: (NSWindow, NSTextView, Bool) -> Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -429,11 +449,11 @@ struct DotComposer: NSViewRepresentable {
     }
 
     final class ComposerTextView: NSTextView {
-        var didAttachWindow: ((NSWindow, Bool) -> Bool)?
+        var didAttachWindow: ((NSWindow, NSTextView, Bool) -> Bool)?
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let window {
-                let shouldFocus = didAttachWindow?(window, false) ?? false
+                let shouldFocus = didAttachWindow?(window, self, false) ?? false
                 if shouldFocus {
                     DispatchQueue.main.async { [weak self, weak window] in
                         if let self { window?.makeFirstResponder(self) }
@@ -442,7 +462,7 @@ struct DotComposer: NSViewRepresentable {
             }
         }
         override func mouseDown(with event: NSEvent) {
-            if let window, didAttachWindow?(window, true) == true {
+            if let window, didAttachWindow?(window, self, true) == true {
                 window.makeFirstResponder(self)
             }
             super.mouseDown(with: event)
