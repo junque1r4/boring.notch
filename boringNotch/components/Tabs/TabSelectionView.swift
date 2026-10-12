@@ -42,6 +42,16 @@ struct TabSelectionView: View {
                         }
                     }
                     .frame(height: 26)
+                    .overlay(alignment: .topTrailing) {
+                        if tab.view == .dot && DotChatStore.shared.unreadCount > 0 {
+                            Text(DotChatStore.shared.unreadCount > 9 ? "9+" : "\(DotChatStore.shared.unreadCount)")
+                                .font(.system(size: 8, weight: .bold)).foregroundStyle(.black)
+                                .padding(.horizontal, 3).frame(minWidth: 12, minHeight: 12)
+                                .background(.yellow, in: Capsule()).padding(.trailing, 4)
+                                .accessibilityLabel("\(DotChatStore.shared.unreadCount) unread Dot replies")
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .foregroundStyle(tab.view == coordinator.currentView ? .white : .gray)
                     .background {
                         if tab.view == coordinator.currentView {
