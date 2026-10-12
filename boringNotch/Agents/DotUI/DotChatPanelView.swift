@@ -61,7 +61,8 @@ struct DotChatView: View {
     }
 
     private func connect() {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+        setupError = nil
+        guard let window = inputFocus.presentationAnchor else {
             setupError = "Open Dot in the notch to continue sign-in."
             return
         }
@@ -251,6 +252,8 @@ private struct DotBottomPreference: PreferenceKey {
     private var localMonitor: Any?
     private var globalMonitor: Any?
     private var shouldFocusComposerOnAppear = false
+
+    var presentationAnchor: NSWindow? { ownerWindow }
 
     func begin(viewModel: BoringViewModel) {
         self.viewModel = viewModel
