@@ -46,7 +46,7 @@ coverage. Archived, remote/cloud-only, older and inaccessible sessions are not
 observed. Desktop origin is identified only from explicit metadata. CLI origin
 requires `source: cli`; other origins remain generic Codex.
 
-### Autodetection and usage rings (Agents tab only)
+### Autodetection, usage and recorded activity (Agents Status tab only)
 
 Codex Desktop (`com.openai.codex`) and Grok Bot (`com.anysphere.sand`) are detected
 using macOS application registration and running-app metadata. Codex CLI is also
@@ -98,8 +98,12 @@ execution and weekly pool, but does not document this desktop cache format.
 Cloud task/session states are unavailable here; opening Grok Bot is supported,
 while per-bot navigation and approvals are not offered.
 
-Rings show the weekly remaining fraction; click for every reported window, reset
-time, observation time and provenance. The notch stays open while a quota popup
+Usage cards show the weekly used fraction and reset timing; click for every
+reported window, observation time and provenance. The 12-week activity calendar
+uses observed Codex session timestamps, deduplicated per session per day. It
+stores at most five SHA-256 session digests per day for 84 days on this Mac.
+Missing records mean unknown activity, not zero usage. The calendar does not
+report ChatGPT web activity or Grok cloud sessions. The notch stays open while a quota popup
 is presented, including when its controls extend below the notch. Dismissing the
 popup restores normal hover closing. Unknown is not rendered as zero or unlimited.
 Readings older than ten minutes, or past the cache expiry, are dimmed and marked
@@ -231,14 +235,18 @@ changed. Public distribution must use proper signing of the app and embedded
 frameworks, Hardened Runtime and notarization. The inherited framework also
 reports a newer macOS build target, so macOS 14–26 compatibility is unverified.
 
-## Private Dot text chat (11 October 2026)
+## Private Dot text chat (12 October 2026)
 
-The Agents header opens a separate native Dot panel attached to its notch window.
-The notch dimensions stay unchanged. The panel retains drafts and pending sends,
-uses Return to send and Shift–Return for a newline, and dismisses on Escape, close,
-outside click, tab change or screen lock. Its interaction hold belongs to that
-window; incoming notifications cannot replace the open chat.
-
+Navigation is Home → Shelf → Agents Status → Dot (Shelf remains conditional on
+its original setting). Dot uses the owner's original ChatGPT avatar image.
+Selecting Dot expands the same notch to at most 760 × 450 points, constrained
+to its display. Agents Status uses 640 × 330 points; Home and Shelf retain their
+original dimensions. The chat transcript and composer live inside the notch.
+A per-window hold keeps Dot open during typing and pointer movement. Escape,
+the close button, outside click, tab change and screen lock dismiss chat;
+drafts and pending messages remain. Return sends; Shift–Return adds a line.
+New replies show a badge on the Dot tab. Incoming notifications do not replace
+an open chat.
 DotChatStore and DotChatTransport are separate from all session readers. They
 forward only explicitly sent chat text to the owner's private relay. Drafts and
 the bounded local transcript use AES-GCM; keys and native OAuth credentials use
@@ -252,6 +260,6 @@ Relay: https://boring-notch-dot-relay.ext-joao-junqueira.workers.dev
 Setup and protocol limits: [private relay README](../integrations/dot-relay/README.md).
 The real authenticated message-and-reply acceptance test is still pending.
 
-Agents list scrolling bypasses the parent swipe handlers while Agents is visible;
+Agents Status and Dot scrolling bypass the parent swipe handlers while visible;
 stale momentum is suppressed across tab changes. Home gestures retain their
 existing behavior. Reducer tests do not substitute for physical trackpad testing.

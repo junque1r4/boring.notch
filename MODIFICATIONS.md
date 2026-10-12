@@ -40,3 +40,14 @@ This is a modified version, not an official TheBoredTeam release.
 
 Original license, copyright notices, credits and third-party notices remain.
 See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.
+
+## 12 October 2026 — Embedded Dot and usage design
+
+- Added the fourth Dot tab with the owner's unmodified personal avatar, bounded
+  embedded chat, per-window focus/dismissal, and unread badge.
+- Replaced the Agents chip with a robot icon; redesigned weekly used statistics
+  and added a local, bounded activity calendar that keeps missing days unknown.
+- Diagnosed the empty relay callback allowlist using encrypted expiring private
+  diagnostics; pinned the verified OpenAI callback origin and activated the
+  actual Dot subscription.
+- Preserved original Home/Shelf dimensions and media behavior.
