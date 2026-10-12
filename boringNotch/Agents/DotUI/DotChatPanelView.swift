@@ -3,9 +3,56 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum DotChatMode: String {
+    case website
+    case relay
+}
+
+/// The notch entry point retains the user's selected Dot surface across opens.
 struct DotChatView: View {
+    let store: DotChatStore
+    @ObservedObject var viewModel: BoringViewModel
+    @AppStorage("dotChatMode") private var selectedMode: DotChatMode = .website
+    @State private var focusReturn = DotChatFocusReturn()
+
+    var body: some View {
+        Group {
+            switch selectedMode {
+            case .website:
+                DotBrowserChatView(viewModel: viewModel, selectedMode: $selectedMode,
+                    focusReturn: focusReturn)
+            case .relay:
+                DotRelayChatView(store: store, viewModel: viewModel, selectedMode: $selectedMode,
+                    focusReturn: focusReturn)
+            }
+        }
+        .onDisappear {
+            if BoringViewCoordinator.shared.currentView != .dot || viewModel.notchState == .closed {
+                focusReturn.clearApplication()
+            }
+        }
+    }
+}
+
+/// One return target belongs to one DotChatView, including its mode changes.
+@MainActor final class DotChatFocusReturn {
+    private(set) var application: NSRunningApplication?
+    weak var currentOwner: DotChatInputFocus?
+
+    func capture(_ candidate: NSRunningApplication?) {
+        guard application == nil, let candidate,
+              candidate.processIdentifier != NSRunningApplication.current.processIdentifier else { return }
+        application = candidate
+    }
+
+    func clearApplication() { application = nil }
+}
+
+struct DotRelayChatView: View {
     @Bindable var store: DotChatStore
     @ObservedObject var viewModel: BoringViewModel
+    @Binding var selectedMode: DotChatMode
+    let focusReturn: DotChatFocusReturn
     @ObservedObject private var coordinator = BoringViewCoordinator.shared
     @State private var inputFocus = DotChatInputFocus()
     @State private var endpoint = ""
@@ -20,7 +67,8 @@ struct DotChatView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            DotChatHeader(store: store, viewModel: viewModel, close: dismissDot, editingConnection: $editingConnection)
+            DotChatHeader(store: store, viewModel: viewModel, close: dismissDot,
+                selectedMode: $selectedMode, editingConnection: $editingConnection)
             if store.configuration == nil || editingConnection {
                 DotConnectionSetup(store: store, endpoint: $endpoint, setupError: $setupError,
                     editingConnection: $editingConnection, connect: connect)
@@ -51,7 +99,7 @@ struct DotChatView: View {
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.14)))
         .foregroundStyle(.white)
         .onAppear {
-            inputFocus.begin(viewModel: viewModel)
+            inputFocus.begin(viewModel: viewModel, focusReturn: focusReturn)
             store.setPresentation(visible: true, atLatest: true)
         }
         .onDisappear {
@@ -107,6 +155,7 @@ private struct DotChatHeader: View {
     @Bindable var store: DotChatStore
     @ObservedObject var viewModel: BoringViewModel
     let close: () -> Void
+    @Binding var selectedMode: DotChatMode
     @Binding var editingConnection: Bool
 
     var body: some View {
@@ -119,6 +168,7 @@ private struct DotChatHeader: View {
                 Text(store.connectionState.label).font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
+            DotChatModePicker(selectedMode: $selectedMode)
             if store.configuration != nil {
                 Button {
                     editingConnection.toggle()
@@ -136,6 +186,22 @@ private struct DotChatHeader: View {
             Button(action: close) { Image(systemName: "xmark") }
                 .buttonStyle(.plain).accessibilityLabel("Close Dot chat")
         }
+    }
+}
+
+struct DotChatModePicker: View {
+    @Binding var selectedMode: DotChatMode
+
+    var body: some View {
+        Picker("Dot chat mode", selection: $selectedMode) {
+            Text("Website").tag(DotChatMode.website)
+            Text("Notch chat").tag(DotChatMode.relay)
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+        .frame(width: 190)
+        .accessibilityLabel("Dot chat mode")
     }
 }
 
@@ -525,7 +591,7 @@ private struct DotComposerRow: View {
     @Bindable var store: DotChatStore
     let close: () -> Void
     let attachImage: () -> Void
-    let inputWindowAttached: (NSWindow, NSTextView, Bool) -> Bool
+    let inputWindowAttached: (NSWindow, NSView, Bool) -> Bool
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -622,37 +688,43 @@ private struct DotBottomPreference: PreferenceKey {
 /// Owns focus and outside-click dismissal for one notch window.
 @MainActor final class DotChatInputFocus {
     private var previousApplication: NSRunningApplication?
+    private weak var focusReturn: DotChatFocusReturn?
     private weak var ownerWindow: NSWindow?
     private weak var viewModel: BoringViewModel?
-    private weak var composer: NSTextView?
+    private weak var composer: NSView?
     private var localMonitor: Any?
     private var globalMonitor: Any?
     private var keyMonitor: Any?
     private weak var pickerPanel: NSOpenPanel?
     private var shouldFocusComposerOnAppear = false
-    private(set) var isPickerActive = false
+    private var ownPickerActive = false
+    var externalPickerIsActive: (() -> Bool)?
+    var isPickerActive: Bool { ownPickerActive || (externalPickerIsActive?() ?? false) }
 
     var presentationAnchor: NSWindow? { ownerWindow }
 
     func beginPicker(_ panel: NSOpenPanel) {
         pickerPanel = panel
-        isPickerActive = true
+        ownPickerActive = true
     }
 
     func endPickerAndFocusComposer() {
         pickerPanel = nil
-        isPickerActive = false
+        ownPickerActive = false
         guard let notchWindow = ownerWindow as? BoringNotchSkyLightWindow else { return }
         notchWindow.wantsKeyForTextInput = true
         notchWindow.makeKeyAndOrderFront(nil)
         if let composer { notchWindow.makeFirstResponder(composer) }
     }
 
-    func begin(viewModel: BoringViewModel) {
+    func begin(viewModel: BoringViewModel, focusReturn: DotChatFocusReturn) {
         self.viewModel = viewModel
+        self.focusReturn = focusReturn
+        focusReturn.currentOwner = self
         viewModel.isDotInputActive = true
         let request = viewModel.consumeDotKeyboardFocusRequest()
-        previousApplication = request.previousApplication ?? NSWorkspace.shared.frontmostApplication
+        focusReturn.capture(request.previousApplication ?? NSWorkspace.shared.frontmostApplication)
+        previousApplication = focusReturn.application
         shouldFocusComposerOnAppear = request.requested || viewModel.isMouseHovering()
     }
 
@@ -691,19 +763,27 @@ private struct DotBottomPreference: PreferenceKey {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, !self.isPickerActive, let window = self.ownerWindow,
                       event.window === window, event.keyCode == 53 else { return event }
-                if (window.firstResponder as? NSTextView)?.hasMarkedText() == true { return event }
+                if (window.firstResponder as? NSTextInputClient)?.hasMarkedText() == true { return event }
                 self.dismissFromEscape()
                 return nil
             }
         }
     }
 
-    func attachComposer(to window: NSWindow, composer: NSTextView, userInitiated: Bool) -> Bool {
+    func attachComposer(to window: NSWindow, composer: NSView, userInitiated: Bool) -> Bool {
         guard let notchWindow = window as? BoringNotchSkyLightWindow else { return false }
         attach(to: notchWindow)
         self.composer = composer
         guard userInitiated || shouldFocusComposerOnAppear || viewModel?.dotKeyboardFocusRequested == true else { return false }
         notchWindow.wantsKeyForTextInput = true
+        if userInitiated, !(composer is NSTextView) {
+            // Let WebKit's mouse-down choose the focused HTML input and its
+            // internal text responder. Focusing the outer WKWebView first can
+            // leave the page looking focused while keystrokes go nowhere.
+            NSApp.activate(ignoringOtherApps: true)
+            notchWindow.makeKeyAndOrderFront(nil)
+            return false
+        }
         return true
     }
 
@@ -711,7 +791,10 @@ private struct DotBottomPreference: PreferenceKey {
         guard let viewModel else { return }
         let request = viewModel.consumeDotKeyboardFocusRequest()
         guard request.requested else { return }
-        if let application = request.previousApplication { previousApplication = application }
+        if let application = request.previousApplication {
+            focusReturn?.capture(application)
+            previousApplication = focusReturn?.application ?? application
+        }
         shouldFocusComposerOnAppear = true
         guard let notchWindow = ownerWindow as? BoringNotchSkyLightWindow else { return }
         notchWindow.wantsKeyForTextInput = true
@@ -720,10 +803,12 @@ private struct DotBottomPreference: PreferenceKey {
     }
 
     func dismiss(restoreForegroundApplication: Bool) {
+        let isCurrentOwner = focusReturn?.currentOwner === self
         let activePanel = pickerPanel
         pickerPanel = nil
-        isPickerActive = false
-        if let notchWindow = ownerWindow as? BoringNotchSkyLightWindow {
+        ownPickerActive = false
+        externalPickerIsActive = nil
+        if isCurrentOwner, let notchWindow = ownerWindow as? BoringNotchSkyLightWindow {
             notchWindow.wantsKeyForTextInput = false
             if notchWindow.isKeyWindow { notchWindow.resignKey() }
         }
@@ -733,10 +818,14 @@ private struct DotBottomPreference: PreferenceKey {
         localMonitor = nil
         globalMonitor = nil
         keyMonitor = nil
-        viewModel?.isDotInputActive = false
-        _ = viewModel?.consumeDotKeyboardFocusRequest()
-        let application = previousApplication
+        if isCurrentOwner {
+            viewModel?.isDotInputActive = false
+            _ = viewModel?.consumeDotKeyboardFocusRequest()
+            focusReturn?.currentOwner = nil
+        }
+        let application = focusReturn?.application ?? previousApplication
         previousApplication = nil
+        focusReturn = nil
         ownerWindow = nil
         viewModel = nil
         composer = nil
@@ -747,7 +836,7 @@ private struct DotBottomPreference: PreferenceKey {
                 activePanel.orderOut(nil)
             }
         }
-        if restoreForegroundApplication { application?.activate(options: []) }
+        if restoreForegroundApplication, isCurrentOwner { application?.activate(options: []) }
     }
 
     private func dismissFromOutsideClick() {
@@ -784,7 +873,7 @@ struct DotComposer: NSViewRepresentable {
     let close: () -> Void
     let addImageURLs: ([URL]) -> Void
     let addImageData: (Data) -> Void
-    let inputWindowAttached: (NSWindow, NSTextView, Bool) -> Bool
+    let inputWindowAttached: (NSWindow, NSView, Bool) -> Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -851,7 +940,7 @@ struct DotComposer: NSViewRepresentable {
     }
 
     final class ComposerTextView: NSTextView {
-        var didAttachWindow: ((NSWindow, NSTextView, Bool) -> Bool)?
+        var didAttachWindow: ((NSWindow, NSView, Bool) -> Bool)?
         var addImageURLs: (([URL]) -> Void)?
         var addImageData: ((Data) -> Void)?
 
