@@ -254,3 +254,49 @@ upstream helper/framework boundaries documented above remain.
   it again.” This confirms the requested delayed opening on the real Mac.
 - This modifier-only rollback did not rerun the earlier 21 focused tests or
   change/retest Dot's motion, message delivery or relay latency.
+# 12 October 2026 — Dot image attachments
+
+Implemented a unified composer containing removable image previews and text,
+with native file selection, image paste, local image-file drop, and captioned
+sent-image bubbles. Up to four normalized JPEGs can be sent in one message.
+PNG/JPEG/HEIC/TIFF/WebP imports use ImageIO with bounded source size and pixel
+count, orientation correction, metadata removal, and compression. Drafts and
+sent images stay in the encrypted archive; only Send forwards them.
+
+Verification for this change:
+
+- Universal local Release build succeeded with the existing stable certificate;
+  deep/strict signature verification passed. The rebuilt app reopened existing
+  history and relay credentials without a Keychain prompt.
+- 43 focused hosted macOS tests passed: Dot store/transport, image normalization
+  and legacy archive decoding, image-only send/retry/persistence failure,
+  malformed inputs, regular-file checks, idle-poll persistence, notch sizing,
+  and pan-scroll behavior. No failures. This is the selected suite for this
+  change, not a new run of the previously recorded full suite.
+- All 38 relay runtime tests passed; production and test TypeScript checks
+  passed. Cases include the maximum four 256 KiB JPEG payload, malformed image
+  metadata/data, duplicate and changed-image IDs, owner authorization, encrypted
+  storage and expiry, target-only image retrieval, and proper MCP image blocks.
+- `cf deploy --dry-run` passed, then the existing personal relay was updated to
+  version `6460184e-4831-41d6-a404-fd5037acbeed`. Existing secrets, OAuth scopes,
+  callback allowlist, Durable Object and OAuth KV bindings were preserved.
+- On the Mac, the + button opened the image picker without dismissing Dot;
+  selecting a synthetic PNG showed its removable preview in the shared composer.
+  Adding text, pressing Escape, and reopening preserved both image and caption.
+- A real native image-and-caption message was accepted at 16:00:25.721 Tbilisi
+  time. The actual Dot replied automatically at 16:01:47.215 (81.494 seconds),
+  identified the colored shapes, and read **4827** from the image. The prompt did
+  not contain the number. The reply and sent image were visibly rendered inside
+  the notch, with reply ticks; opening cleared the one-unread badge. No synthetic
+  relay reply or manual `notch_reply` call was used.
+- Reading that originating context through the connected private plugin returned
+  one actual MCP image block. Base64 was excluded from text/structured metadata.
+
+Limits: paste/drop code compiled, but those two input routes were not exercised
+through physical clipboard/drag gestures in this pass. HEIC/WebP/TIFF import,
+multiple displays, screen lock while the picker is open, and physical trackpad
+behavior were not newly exercised. Images are compressed stills, not original
+files or animations. The existing event-delivery latency remains; this image
+test does not establish native-Dot response-time parity. The original hover and
+motion files were unchanged by this feature. Distribution remains a local
+development build paired with matching GPL source, not a notarized release.
