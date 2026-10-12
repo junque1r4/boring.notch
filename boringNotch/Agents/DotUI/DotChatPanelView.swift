@@ -13,6 +13,10 @@ struct DotChatView: View {
     @State private var viewportHeight: CGFloat = 0
     @State private var editingConnection = false
 
+    private var compactSetupLayout: Bool {
+        viewModel.notchSize.height < 390 && (store.configuration == nil || editingConnection)
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             DotChatHeader(store: store, close: dismissDot, editingConnection: $editingConnection)
@@ -28,15 +32,17 @@ struct DotChatView: View {
             }
             if let error = setupError ?? store.errorMessage {
                 Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
             }
-            DotTranscript(store: store, atLatest: $atLatest, viewportHeight: $viewportHeight)
-            if !atLatest && store.unreadCount > 0 {
-                Text("New replies below · scroll to the latest message")
-                    .font(.caption).foregroundStyle(.cyan)
+            if !compactSetupLayout {
+                DotTranscript(store: store, atLatest: $atLatest, viewportHeight: $viewportHeight)
+                if !atLatest && store.unreadCount > 0 {
+                    Text("New replies below · scroll to the latest message")
+                        .font(.caption).foregroundStyle(.cyan)
+                }
+                DotPendingControls(store: store, setupError: $setupError)
+                DotComposerRow(store: store, close: dismissDot, inputWindowAttached: inputFocus.attachComposer)
             }
-            DotPendingControls(store: store, setupError: $setupError)
-            DotComposerRow(store: store, close: dismissDot, inputWindowAttached: inputFocus.attachComposer)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(.black.opacity(0.96), in: RoundedRectangle(cornerRadius: 18))
@@ -49,7 +55,7 @@ struct DotChatView: View {
         .onDisappear {
             inputFocus.dismiss(restoreForegroundApplication: false)
             store.setPresentation(visible: false, atLatest: false)
-            try? store.flush()
+            store.flushOnDismiss()
         }
         .background(DotParentWindowReader { inputFocus.attach(to: $0) })
         .onChange(of: coordinator.currentView) { _, selected in
@@ -251,6 +257,7 @@ private struct DotBottomPreference: PreferenceKey {
     private weak var viewModel: BoringViewModel?
     private var localMonitor: Any?
     private var globalMonitor: Any?
+    private var keyMonitor: Any?
     private var shouldFocusComposerOnAppear = false
 
     var presentationAnchor: NSWindow? { ownerWindow }
@@ -267,9 +274,11 @@ private struct DotBottomPreference: PreferenceKey {
         if ownerWindow !== window {
             if let localMonitor { NSEvent.removeMonitor(localMonitor) }
             if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
             ownerWindow = window
             localMonitor = nil
             globalMonitor = nil
+            keyMonitor = nil
         }
         if localMonitor == nil {
             localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
@@ -291,6 +300,15 @@ private struct DotBottomPreference: PreferenceKey {
                 }
             }
         }
+        if keyMonitor == nil {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, let window = self.ownerWindow,
+                      event.window === window, event.keyCode == 53 else { return event }
+                if (window.firstResponder as? NSTextView)?.hasMarkedText() == true { return event }
+                self.dismissFromEscape()
+                return nil
+            }
+        }
     }
 
     func attachComposer(to window: NSWindow, userInitiated: Bool) -> Bool {
@@ -308,8 +326,10 @@ private struct DotBottomPreference: PreferenceKey {
         }
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }
         if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         localMonitor = nil
         globalMonitor = nil
+        keyMonitor = nil
         viewModel?.isDotInputActive = false
         let application = previousApplication
         previousApplication = nil
@@ -321,6 +341,12 @@ private struct DotBottomPreference: PreferenceKey {
     private func dismissFromOutsideClick() {
         guard let viewModel else { return }
         dismiss(restoreForegroundApplication: false)
+        viewModel.close(forced: true)
+    }
+
+    private func dismissFromEscape() {
+        guard let viewModel else { return }
+        dismiss(restoreForegroundApplication: true)
         viewModel.close(forced: true)
     }
 

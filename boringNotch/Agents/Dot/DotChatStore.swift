@@ -284,6 +284,14 @@ final class DotChatStore {
         catch { throw DotChatError.persistenceUnavailable }
     }
 
+    /// Flushes the last draft synchronously when Dot leaves the notch. Keep a
+    /// failure visible on the next open; silently swallowing it would leave a
+    /// draft only in memory after the debounce task has been cancelled.
+    func flushOnDismiss() {
+        do { try flush() }
+        catch { errorMessage = DotChatError.persistenceUnavailable.localizedDescription }
+    }
+
     private func updateDelivery(id: UUID, value: DotMessageDelivery) {
         guard let index = messages.firstIndex(where: { $0.id == id && $0.role == .user }) else { return }
         // Late queued/delivered events cannot downgrade a completed reply.

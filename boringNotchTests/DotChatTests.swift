@@ -219,6 +219,19 @@ private actor DotTestHTTP: DotHTTPClient {
         await store.disconnect()
     }
 
+    func testDismissalFlushFailureRemainsVisibleInsteadOfDroppingDraftSilently() throws {
+        let storage = DotTestArchive()
+        let store = DotChatStore(storage: storage, transport: DotTestTransport(), authorization: DotTestOAuth(), autoResume: false)
+        store.draft = "Keep this draft"
+        storage.failSave = true
+
+        store.flushOnDismiss()
+
+        XCTAssertEqual(store.draft, "Keep this draft")
+        XCTAssertEqual(store.errorMessage, DotChatError.persistenceUnavailable.localizedDescription)
+        XCTAssertNil(try storage.load()?.draft)
+    }
+
     func testSendWaitsForLiveDotSubscriptionAndLocalAbandonAcceptsLaterReply() async throws {
         let id = UUID()
         let store = store(try archive(pendingID: id))
