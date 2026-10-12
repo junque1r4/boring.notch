@@ -1,6 +1,7 @@
 // Modified for Boring Notch Agents, 2026-10-11. GPL-3.0-only.
 import { DurableObject } from "cloudflare:workers";
 import type { Env, OwnerProps } from "./env";
+import { type ChatImage, type ContextMessage, type ImageContext, IMAGE_BYTES, IMAGE_COUNT, IMAGE_EDGE, imageMetadata, parseImages } from "./images";
 import { boundedText, callbackURL, decrypt, diagnosticCallbackOrigin, digest, encrypt, equal, EVENT_NAME, object, OWNER_ID, RelayError, REPLY_LIMIT, RETENTION_MS, retryDelay, signedHeaders, signingKey, SUBSCRIPTION_TTL_MS, USER_LIMIT, uuid, textFingerprint } from "./security";
 export type DeliveryStatus = "queued" | "delivered" | "failed" | "replied";
 interface MessageRow extends Record<string,SqlStorageValue> { id:string; cipher:string; hash:string; status:DeliveryStatus; created:number; event_id:string; }
@@ -39,15 +40,18 @@ export class DotRelay extends DurableObject<Env> {
     this.ctx.storage.sql.exec("INSERT INTO events(event_id,message_id,type,cipher,created) VALUES(?,?,?,?,?)",eventId,messageId,type,cipher,created);
   }
   async accept(owner:OwnerProps,input:Record<string,unknown>) {
-    this.owner(owner); const messageId=uuid(input.messageId); const text=boundedText(input.text,USER_LIMIT);
-    if (Object.keys(input).some(key=>!["messageId","text"].includes(key))) throw new RelayError("unexpected_fields");
+    this.owner(owner); const messageId=uuid(input.messageId); const attachments=parseImages(input.attachments);
+    const text=attachments.length&&typeof input.text==="string"&&new TextEncoder().encode(input.text).length<=USER_LIMIT?input.text:boundedText(input.text,USER_LIMIT);
+    if (Object.keys(input).some(key=>!["messageId","text","attachments"].includes(key))) throw new RelayError("unexpected_fields");
     if(this.ctx.storage.sql.exec<{id:string}>("SELECT id FROM tombstones WHERE id=?",messageId).toArray().length)throw new RelayError("message_expired",410);
-    const hash=await textFingerprint(text,this.env.RELAY_ENCRYPTION_KEY); const existing=this.message(messageId);
+    // Preserve legacy text-only fingerprints across upgrades; include every
+    // image byte and its metadata when deduplicating image messages.
+    const hash=await textFingerprint(attachments.length?JSON.stringify({text,attachments}):text,this.env.RELAY_ENCRYPTION_KEY); const existing=this.message(messageId);
     if (existing) { if(existing.hash!==hash) throw new RelayError("message_id_conflict",409);return this.receipt(existing); }
     const count=this.ctx.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM messages WHERE created>?",Date.now()-60000).one().count;
     if(count>=30) throw new RelayError("rate_limited",429);
     if(this.ctx.storage.sql.exec<{count:number}>("SELECT COUNT(*) AS count FROM messages").one().count>=2000) throw new RelayError("relay_capacity",429);
-    const now=Date.now(); const cipher=await encrypt({text},this.env.RELAY_ENCRYPTION_KEY,`message:${messageId}`);
+    const now=Date.now(); const cipher=await encrypt(attachments.length?{text,attachments}:{text},this.env.RELAY_ENCRYPTION_KEY,`message:${messageId}`);
     const eventId=crypto.randomUUID(); const deliveryId=crypto.randomUUID();
     const delivery=await encrypt({status:"queued"},this.env.RELAY_ENCRYPTION_KEY,`event:${deliveryId}`);
     const sub=await this.subscription();
@@ -75,7 +79,7 @@ export class DotRelay extends DurableObject<Env> {
     }
     return {events,cursor,subscriptionActive:!!await this.subscription()};
   }
-  async settings(owner:OwnerProps) { this.owner(owner); return {conversationId:"notch",subscriptionActive:!!await this.subscription(),callbackAllowlistConfigured:this.env.CALLBACK_ORIGINS.split(",").some(origin=>origin.trim().length>0),payloadRetentionDays:7,maxUserTextBytes:USER_LIMIT,maxReplyTextBytes:REPLY_LIMIT}; }
+  async settings(owner:OwnerProps) { this.owner(owner); return {conversationId:"notch",subscriptionActive:!!await this.subscription(),callbackAllowlistConfigured:this.env.CALLBACK_ORIGINS.split(",").some(origin=>origin.trim().length>0),payloadRetentionDays:7,maxUserTextBytes:USER_LIMIT,maxReplyTextBytes:REPLY_LIMIT,maxImages:IMAGE_COUNT,maxImageBytes:IMAGE_BYTES,maxImageEdge:IMAGE_EDGE}; }
   private async recordSubscriptionAttempt(origin:string|null,reason:string) {
     const expires=Date.now()+60*60*1000;
     const cipher=await encrypt({origin,reason},this.env.RELAY_ENCRYPTION_KEY,"subscription-diagnostic");
@@ -114,26 +118,28 @@ export class DotRelay extends DurableObject<Env> {
     return {messages:rows.slice(0,PENDING_NATIVE_LIMIT).map(row=>({messageId:row.id,status:row.status,createdAt:iso(row.created)})),hasMorePending:rows.length>PENDING_NATIVE_LIMIT};
   }
   async readiness(owner:OwnerProps) { const pending=this.pendingNativeMessages();return {...await this.settings(owner),lastSubscriptionAttempt:await this.lastSubscriptionAttempt(),lastDeliveryAttempt:await this.lastDeliveryAttempt(),lastNativeMessage:this.latestMessageStatus(),pendingNativeMessages:pending.messages,hasMorePending:pending.hasMorePending}; }
-  async context(owner:OwnerProps,input:Record<string,unknown>) {
+  async context(owner:OwnerProps,input:Record<string,unknown>):Promise<ImageContext> {
     this.owner(owner); const messageId=uuid(input.messageId);const target=this.message(messageId);
+    if(Object.keys(input).some(key=>key!=="messageId"))throw new RelayError("invalid_arguments");
     if(!target || target.created<Date.now()-RETENTION_MS) throw new RelayError("message_not_found",404);
-    const rows=this.ctx.storage.sql.exec<MessageRow>("SELECT * FROM messages WHERE created<=? AND created>? ORDER BY created DESC LIMIT 20",target.created,Date.now()-RETENTION_MS).toArray().reverse();
-    const messages:Record<string,unknown>[]=[];let bytes=0;
+    const rows=this.ctx.storage.sql.exec<MessageRow>("SELECT * FROM messages WHERE (created<? OR (created=? AND rowid<=(SELECT rowid FROM messages WHERE id=?))) AND created>? ORDER BY created DESC,rowid DESC LIMIT 20",target.created,target.created,messageId,Date.now()-RETENTION_MS).toArray().reverse();
+    const messages:ContextMessage[]=[];let bytes=0;let images:ChatImage[]=[];
     for(const row of rows) {
-      const {text}=await decrypt<{text:string}>(row.cipher,this.env.RELAY_ENCRYPTION_KEY,`message:${row.id}`);
-      const item={messageId:row.id,role:"user",text,createdAt:iso(row.created)};
+      const {text,attachments=[]}=await decrypt<{text:string;attachments?:ChatImage[]}>(row.cipher,this.env.RELAY_ENCRYPTION_KEY,`message:${row.id}`);
+      if(row.id===messageId)images=attachments;
+      const item:ContextMessage={messageId:row.id,role:"user",text,createdAt:iso(row.created),...(attachments.length?{attachments:attachments.map(imageMetadata),imagesIncluded:row.id===messageId}:{})};
       bytes+=new TextEncoder().encode(JSON.stringify(item)).length;
       if(bytes>65536) {messages.splice(0,messages.length);bytes=new TextEncoder().encode(JSON.stringify(item)).length;}
       messages.push(item);
       const replies=this.ctx.storage.sql.exec<EventRow>("SELECT * FROM events WHERE message_id=? AND type='reply' ORDER BY sequence",row.id).toArray();
       for(const reply of replies) {
         const payload=await decrypt<{text:string}>(reply.cipher,this.env.RELAY_ENCRYPTION_KEY,`event:${reply.event_id}`);
-        const item={messageId:row.id,replyId:reply.event_id,role:"assistant",text:payload.text,createdAt:iso(reply.created)};
+        const item:ContextMessage={messageId:row.id,replyId:reply.event_id,role:"assistant",text:payload.text,createdAt:iso(reply.created)};
         const size=new TextEncoder().encode(JSON.stringify(item)).length;
         if(bytes+size<=65536) {messages.push(item);bytes+=size;}
       }
     }
-    return {conversationId:"notch",originatingMessageId:messageId,messages};
+    return {conversationId:"notch",originatingMessageId:messageId,messages,images};
   }
   async reply(owner:OwnerProps,input:Record<string,unknown>) {
     this.owner(owner); const messageId=uuid(input.messageId); const replyId=uuid(input.replyId); const text=boundedText(input.text,REPLY_LIMIT);
@@ -252,8 +258,8 @@ export class DotRelay extends DurableObject<Env> {
     if(!valid){await this.revoke(sub.owner);return;}
     for(const row of pending) {
       const message=this.message(row.message_id);if(!message||message.status==="replied"||row.subscription_id!==sub.id){this.ctx.storage.sql.exec("DELETE FROM pending WHERE message_id=?",row.message_id);continue;}
-      const {text}=await decrypt<{text:string}>(message.cipher,this.env.RELAY_ENCRYPTION_KEY,`message:${message.id}`);
-      const body=JSON.stringify({eventId:message.event_id,name:EVENT_NAME,timestamp:iso(message.created),data:{conversationId:"notch",messageId:message.id,text},cursor:null});
+      const {text,attachments=[]}=await decrypt<{text:string;attachments?:ChatImage[]}>(message.cipher,this.env.RELAY_ENCRYPTION_KEY,`message:${message.id}`);
+      const body=JSON.stringify({eventId:message.event_id,name:EVENT_NAME,timestamp:iso(message.created),data:{conversationId:"notch",messageId:message.id,text,...(attachments.length?{attachmentCount:attachments.length}:{})},cursor:null});
       const attempts=row.attempts+1;
       try {
         const headers=await signedHeaders(sub.secret,message.event_id,body,sub.id);

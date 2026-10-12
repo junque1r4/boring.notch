@@ -75,18 +75,18 @@ final class DotEncryptedArchiveStorage: DotArchiveStorage, @unchecked Sendable {
     func load() throws -> DotChatArchive? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= DotChatLimits.archiveBytes + 128 else { throw DotChatError.persistenceUnavailable }
+        guard size <= DotChatLimits.combinedArchiveBytes + 128 else { throw DotChatError.persistenceUnavailable }
         let data = try Data(contentsOf: url)
         let sealed = try AES.GCM.SealedBox(combined: data)
         let cleartext = try AES.GCM.open(sealed, using: key(create: false))
-        guard cleartext.count <= DotChatLimits.archiveBytes else { throw DotChatError.persistenceUnavailable }
+        guard cleartext.count <= DotChatLimits.combinedArchiveBytes else { throw DotChatError.persistenceUnavailable }
         let archive = try JSONDecoder().decode(DotChatArchive.self, from: cleartext)
         guard archive.version == 1 else { throw DotChatError.persistenceUnavailable }
         return archive
     }
     func save(_ archive: DotChatArchive) throws {
         let data = try JSONEncoder().encode(archive)
-        guard data.count <= DotChatLimits.archiveBytes else { throw DotChatError.persistenceUnavailable }
+        guard data.count <= DotChatLimits.combinedArchiveBytes else { throw DotChatError.persistenceUnavailable }
         let encrypted = try AES.GCM.seal(data, using: key(create: true))
         guard let combined = encrypted.combined else { throw DotChatError.persistenceUnavailable }
         let directory = url.deletingLastPathComponent()

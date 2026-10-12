@@ -2,6 +2,9 @@
 import XCTest
 import AppKit
 import CryptoKit
+import ImageIO
+import UniformTypeIdentifiers
+import Darwin
 @testable import boringNotch
 
 private final class DotTestSecrets: DotSecretStorage, @unchecked Sendable {
@@ -29,14 +32,16 @@ private final class DotTestArchive: DotArchiveStorage, @unchecked Sendable {
 
 private actor DotTestTransport: DotChatTransporting {
     private(set) var sent: [UUID] = []
+    private(set) var sentAttachments: [[DotImageAttachment]] = []
     private var failures: Int
     private let eventError: DotChatError?
     private(set) var eventAttempts = 0
     init(failures: Int = 0, eventError: DotChatError? = nil) { self.failures = failures; self.eventError = eventError }
     func configure(_ configuration: DotRelayConfiguration) -> Bool { true }
     func install(_ credentials: DotOAuthCredentials, configuration: DotRelayConfiguration) {}
-    func send(messageID: UUID, text: String) throws -> DotRelayReceipt {
+    func send(messageID: UUID, text: String, attachments: [DotImageAttachment]) throws -> DotRelayReceipt {
         sent.append(messageID)
+        sentAttachments.append(attachments)
         if failures > 0 { failures -= 1; throw DotChatError.unavailable }
         return DotRelayReceipt(messageId: messageID, status: .queued, sequence: 1, subscriptionActive: true)
     }
@@ -81,6 +86,18 @@ private actor DotTestHTTP: DotHTTPClient {
     private func reply(sequence: Int64, eventID: UUID = UUID(), messageID: UUID, text: String = "Reply from Dot") -> DotRelayEvent {
         DotRelayEvent(sequence: sequence, eventId: eventID, type: .reply, messageId: messageID,
             status: nil, text: text, createdAt: Date())
+    }
+    private func fixturePNG() throws -> Data {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 32, height: 32, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(NSColor.red.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        let output = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return output as Data
     }
 
     func testMarkdownParserKeepsParagraphsListsAndFencedCodeAsDistinctBlocks() {
@@ -138,6 +155,21 @@ private actor DotTestHTTP: DotHTTPClient {
         try ciphertext.write(to: url)
         XCTAssertThrowsError(try storage.load())
         XCTAssertEqual(try Data(contentsOf: url), ciphertext, "An unreadable archive must remain intact")
+    }
+
+    func testEncryptedArchiveRoundTripsDraftAndSentImages() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("history.aesgcm")
+        let storage = DotEncryptedArchiveStorage(url: url, secrets: DotTestSecrets())
+        let image = try DotImageAttachment.importData(fixturePNG())
+        var value = try archive()
+        value.draftAttachments = [image]
+        value.messages[0].attachments = [image]
+        try storage.save(value)
+        XCTAssertEqual(try storage.load(), value)
+        let ciphertext = try Data(contentsOf: url)
+        XCTAssertNil(ciphertext.range(of: image.data))
     }
 
     func testMissingKeyNeverReplacesEncryptedHistoryWithEmptyPlaintext() throws {
@@ -199,11 +231,11 @@ private actor DotTestHTTP: DotHTTPClient {
         XCTAssertEqual(store.pendingMessageID, id)
     }
 
-    func testHistoryRetentionKeepsPendingAndFitsEncryptedArchiveBudget() throws {
+    func testHistoryAtTextBudgetKeepsPendingAndFitsEncryptedArchiveBudget() throws {
         let id = UUID()
         var value = try archive(pendingID: id)
         value.messages += (0..<99).map { _ in DotChatMessage(id: UUID(), role: .assistant,
-            text: String(repeating: "z", count: 24_000), createdAt: Date(), inReplyTo: id) }
+            text: String(repeating: "z", count: 8_000), createdAt: Date()) }
         let storage = DotTestArchive(value)
         let store = DotChatStore(storage: storage, transport: DotTestTransport(), authorization: DotTestOAuth(), autoResume: false)
         try store.flush()
@@ -256,6 +288,82 @@ private actor DotTestHTTP: DotHTTPClient {
         let sendCount = await transport.sent.count
         XCTAssertEqual(sendCount, 0)
         await store.disconnect()
+    }
+
+    func testImageOnlyDraftPersistsBeforeSendAndRetryKeepsSameImage() async throws {
+        let transport = DotTestTransport(failures: 1)
+        let storage = DotTestArchive()
+        let store = DotChatStore(storage: storage, transport: transport, authorization: DotTestOAuth(), autoResume: false)
+        try store.configureEndpoint(endpoint)
+        await store.connect(presentationAnchor: NSWindow())
+        try store.apply(batch: DotRelayEventBatch(events: [], cursor: 0, subscriptionActive: true))
+        await store.addImageData(try fixturePNG())
+        XCTAssertEqual(store.draftAttachments.count, 1)
+        XCTAssertTrue(store.canSend)
+        try store.flush()
+        XCTAssertEqual(try storage.load()?.draftAttachments.count, 1)
+
+        await store.sendDraft()
+        let pending = try XCTUnwrap(store.pendingMessageID)
+        let saved = try XCTUnwrap(storage.load())
+        XCTAssertEqual(saved.messages.first?.id, pending)
+        let firstSentAttachments = await transport.sentAttachments
+        XCTAssertEqual(saved.messages.first?.attachments, try XCTUnwrap(firstSentAttachments.first))
+        XCTAssertTrue(saved.draftAttachments.isEmpty)
+        await store.retryPending()
+        let sent = await transport.sentAttachments
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertEqual(sent[0], sent[1])
+        let sentIDs = await transport.sent
+        XCTAssertEqual(sentIDs, [pending, pending])
+        await store.disconnect()
+    }
+
+    func testImageDraftSurvivesPersistenceFailureWithoutNetworkSend() async throws {
+        let transport = DotTestTransport()
+        let storage = DotTestArchive()
+        let store = DotChatStore(storage: storage, transport: transport, authorization: DotTestOAuth(), autoResume: false)
+        try store.configureEndpoint(endpoint)
+        await store.connect(presentationAnchor: NSWindow())
+        try store.apply(batch: DotRelayEventBatch(events: [], cursor: 0, subscriptionActive: true))
+        await store.addImageData(try fixturePNG())
+        let original = store.draftAttachments
+        storage.failSave = true
+        await store.sendDraft()
+        XCTAssertEqual(store.draftAttachments, original)
+        XCTAssertNil(store.pendingMessageID)
+        let sentIDs = await transport.sent
+        XCTAssertTrue(sentIDs.isEmpty)
+        await store.disconnect()
+    }
+
+    func testIdlePollDoesNotRewriteArchive() throws {
+        let storage = DotTestArchive()
+        let store = DotChatStore(storage: storage, transport: DotTestTransport(), authorization: DotTestOAuth(), autoResume: false)
+        try store.flush()
+        storage.failSave = true
+        XCTAssertNoThrow(try store.apply(batch: DotRelayEventBatch(events: [], cursor: 0, subscriptionActive: true)))
+        XCTAssertTrue(store.subscriptionActive)
+    }
+
+    func testLoadedArchiveOverTextBudgetIsBlocked() throws {
+        var value = DotChatArchive()
+        value.messages = (0..<30).map { _ in DotChatMessage(id: UUID(), role: .assistant,
+            text: String(repeating: "x", count: 50_000), createdAt: Date()) }
+        let store = DotChatStore(storage: DotTestArchive(value), transport: DotTestTransport(),
+            authorization: DotTestOAuth(), autoResume: false)
+        XCTAssertNotNil(store.errorMessage)
+        XCTAssertThrowsError(try store.flush())
+    }
+
+    func testImporterRejectsNamedPipeWithoutBlocking() async throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        XCTAssertEqual(mkfifo(path.path, 0o600), 0)
+        defer { try? FileManager.default.removeItem(at: path) }
+        let store = store()
+        await store.addImageURLs([path])
+        XCTAssertTrue(store.draftAttachments.isEmpty)
+        XCTAssertEqual(store.errorMessage, DotChatError.invalidImage.localizedDescription)
     }
 
     func testDismissalFlushFailureRemainsVisibleInsteadOfDroppingDraftSilently() throws {
@@ -325,11 +433,33 @@ private actor DotTestHTTP: DotHTTPClient {
         XCTAssertEqual(batch.events.first?.eventId, eventID)
         XCTAssertEqual(batch.events.first?.text, "Actual reply fixture")
         let requests = await http.requests
-        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: requests[0].httpBody!) as? [String: String])
-        XCTAssertEqual(Set(payload.keys), ["messageId", "text"])
-        XCTAssertEqual(payload["messageId"]?.lowercased(), id.uuidString.lowercased())
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: requests[0].httpBody!) as? [String: Any])
+        XCTAssertEqual(Set(payload.keys), ["messageId", "text", "attachments"])
+        XCTAssertEqual((payload["messageId"] as? String)?.lowercased(), id.uuidString.lowercased())
+        XCTAssertEqual((payload["attachments"] as? [Any])?.count, 0)
         XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Authorization"), "Bearer fixture-token")
         XCTAssertEqual(requests[1].url?.query, "after=1")
+    }
+
+    func testRelayWireIncludesBase64ImageWithText() async throws {
+        let id = UUID()
+        let receipt = Data("{\"messageId\":\"\(id)\",\"status\":\"queued\",\"sequence\":1,\"subscriptionActive\":true}".utf8)
+        let http = DotTestHTTP(responses: ["/v1/messages": receipt])
+        let transport = DotChatTransport(http: http, secrets: DotTestSecrets())
+        try await transport.install(DotOAuthCredentials(clientID: "public", accessToken: "fixture-token",
+            refreshToken: nil, expiresAt: .distantFuture), configuration: DotRelayConfiguration(endpoint: endpoint))
+        let image = try DotImageAttachment.importData(fixturePNG())
+        _ = try await transport.send(messageID: id, text: "Look at this", attachments: [image])
+        let requests = await http.requests
+        let body = try XCTUnwrap(requests.first?.httpBody)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let attachments = try XCTUnwrap(payload["attachments"] as? [[String: Any]])
+        XCTAssertEqual(attachments.count, 1)
+        XCTAssertEqual(payload["text"] as? String, "Look at this")
+        XCTAssertEqual(attachments[0]["mimeType"] as? String, "image/jpeg")
+        XCTAssertEqual(attachments[0]["data"] as? String, image.data.base64EncodedString())
+        XCTAssertEqual(attachments[0]["width"] as? Int, image.width)
+        XCTAssertEqual(attachments[0]["height"] as? Int, image.height)
     }
 
     func testRefreshInvalidGrantRequiresReconnectAndDoesNotExposeServerBody() async throws {

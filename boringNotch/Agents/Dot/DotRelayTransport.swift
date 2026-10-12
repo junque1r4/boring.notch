@@ -73,9 +73,15 @@ final class DotURLSessionClient: NSObject, DotHTTPClient, URLSessionTaskDelegate
 protocol DotChatTransporting: Sendable {
     func configure(_ configuration: DotRelayConfiguration) async throws -> Bool
     func install(_ credentials: DotOAuthCredentials, configuration: DotRelayConfiguration) async throws
-    func send(messageID: UUID, text: String) async throws -> DotRelayReceipt
+    func send(messageID: UUID, text: String, attachments: [DotImageAttachment]) async throws -> DotRelayReceipt
     func events(after sequence: Int64) async throws -> DotRelayEventBatch
     func disconnect() async
+}
+
+extension DotChatTransporting {
+    func send(messageID: UUID, text: String) async throws -> DotRelayReceipt {
+        try await send(messageID: messageID, text: text, attachments: [])
+    }
 }
 
 actor DotChatTransport: DotChatTransporting {
@@ -139,13 +145,14 @@ actor DotChatTransport: DotChatTransporting {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
     }
-    func send(messageID: UUID, text: String) async throws -> DotRelayReceipt {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.utf8.count <= DotChatLimits.draftBytes
+    func send(messageID: UUID, text: String, attachments: [DotImageAttachment] = []) async throws -> DotRelayReceipt {
+        guard (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty), text.utf8.count <= DotChatLimits.draftBytes
         else { throw DotChatError.draftTooLarge }
+        try DotImageAttachment.validate(attachments)
         var request = try await authorizedRequest(path: "v1/messages", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        struct Payload: Encodable { let messageId: UUID; let text: String }
-        request.httpBody = try JSONEncoder().encode(Payload(messageId: messageID, text: text))
+        struct Payload: Encodable { let messageId: UUID; let text: String; let attachments: [DotImageAttachment] }
+        request.httpBody = try JSONEncoder().encode(Payload(messageId: messageID, text: text, attachments: attachments))
         let data = try await http.request(request, maximumBytes: 65_536)
         let receipt = try JSONDecoder().decode(DotRelayReceipt.self, from: data)
         guard receipt.messageId == messageID, receipt.sequence >= 0, receipt.status != .uncertain else { throw DotChatError.invalidResponse }

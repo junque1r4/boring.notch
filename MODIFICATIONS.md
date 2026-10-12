@@ -107,3 +107,16 @@ See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.
 - Return Dot's hover callback to its button-sized region, removing interference
   with the main notch's existing delayed-opening handler. Preserve the original
   delay, hover implementation and current Dot animations.
+
+## 12 October 2026 — Image attachments in Dot chat
+
+- Add a unified image-and-text composer with removable image previews, native
+  file selection, copied-image paste and local image-file drops. Render sent
+  images above their captions within the existing adaptive bubbles.
+- Normalize bounded local images to metadata-free JPEG; preserve draft images,
+  pending payloads and stable IDs in encrypted storage. Keep a separate bounded
+  image retention budget and avoid rewriting the archive on idle polling.
+- Extend the owner-only relay to encrypt, deduplicate and expire image payloads;
+  expose originating-message pixels as MCP image blocks to the actual Dot.
+  Keep images out of webhook payloads, logs and notifications. Preserve existing
+  text-only clients, OAuth scopes, infrastructure and the notch's hover/motion.

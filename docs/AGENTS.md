@@ -235,7 +235,7 @@ changed. Public distribution must use proper signing of the app and embedded
 frameworks, Hardened Runtime and notarization. The inherited framework also
 reports a newer macOS build target, so macOS 14–26 compatibility is unverified.
 
-## Private Dot text chat (12 October 2026)
+## Private Dot chat (12 October 2026)
 
 Navigation is Home → Shelf → Agents Status → Dot (Shelf remains conditional on
 its original setting). Dot uses the owner's original ChatGPT avatar image.
@@ -248,13 +248,30 @@ drafts and pending messages remain. Return sends; Shift–Return adds a line.
 New replies show a badge on the Dot tab. Incoming notifications do not replace
 an open chat.
 DotChatStore and DotChatTransport are separate from all session readers. They
-forward only explicitly sent chat text to the owner's private relay. Drafts and
+forward only explicitly sent chat text and attached images to the owner's private relay. Drafts and
 the bounded local transcript use AES-GCM; keys and native OAuth credentials use
 Keychain. The relay uses the exact owner's GitHub identity, PKCE, encrypted
 Durable Object storage, signed callbacks, expiry and duplicate protection.
-The last 100 local messages or 1 MiB and an 8 KiB draft are retained; relay payloads
-expire after seven days. Existing ChatGPT history is not mirrored. Receipt is not
-proof of Dot processing. Voice, attachments and approval controls are absent.
+The last 100 local messages or 1 MiB of text/metadata and an 8 KiB draft are
+retained. Images have a separate 12 MiB local budget, including draft images;
+the encrypted archive is bounded at 18 MiB. Old completed messages and their
+replies are trimmed together, preserving the pending message and draft. Relay
+payloads expire after seven days. Existing ChatGPT history is not mirrored.
+Receipt is not proof of Dot processing. Voice, non-image files and approval
+controls are absent.
+
+Use **+**, paste a copied image, or drop local image files onto the text input.
+Up to four images can be sent together, with or without a caption. Removable
+previews sit above the text in one rounded composer. The file picker keeps the
+notch open and returns focus to the composer. PNG, JPEG, HEIC, TIFF and WebP
+are imported through ImageIO where available, with a 20 MiB / 40-megapixel
+input bound. Images are oriented, reduced to at most 1600 pixels on either edge,
+flattened onto white, and re-encoded as JPEG at most 256 KiB each; metadata is
+not copied. The preview represents the normalized image, not the original file.
+Only Send transmits images. Neither filenames nor file paths are relayed.
+Draft and sent image data use the same encrypted local archive and Keychain key.
+Dot receives originating-message images as MCP image content blocks; older
+context includes metadata only and can be read by its original message ID.
 
 Relay: https://boring-notch-dot-relay.ext-joao-junqueira.workers.dev
 Setup and protocol limits: [private relay README](../integrations/dot-relay/README.md).

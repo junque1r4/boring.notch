@@ -6,6 +6,11 @@ enum DotChatLimits {
     static let replyBytes = 65_536
     static let messageCount = 100
     static let archiveBytes = 1_048_576
+    static let imageBytes = 262_144
+    static let imageCount = 4
+    static let imageEdge = 1_600
+    static let imageArchiveBytes = 12 * 1_048_576
+    static let combinedArchiveBytes = 18 * 1_048_576
     static let networkBytes = 8_388_608
 
     static func prefix(_ text: String, bytes limit: Int) -> String {
@@ -43,6 +48,26 @@ struct DotChatMessage: Identifiable, Codable, Equatable, Sendable {
     let createdAt: Date
     var delivery: DotMessageDelivery?
     var inReplyTo: UUID?
+    var attachments: [DotImageAttachment] = []
+
+    init(id: UUID, role: DotMessageRole, text: String, createdAt: Date,
+         delivery: DotMessageDelivery? = nil, inReplyTo: UUID? = nil,
+         attachments: [DotImageAttachment] = []) {
+        self.id = id; self.role = role; self.text = text; self.createdAt = createdAt
+        self.delivery = delivery; self.inReplyTo = inReplyTo; self.attachments = attachments
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, role, text, createdAt, delivery, inReplyTo, attachments }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        role = try values.decode(DotMessageRole.self, forKey: .role)
+        text = try values.decode(String.self, forKey: .text)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        delivery = try values.decodeIfPresent(DotMessageDelivery.self, forKey: .delivery)
+        inReplyTo = try values.decodeIfPresent(UUID.self, forKey: .inReplyTo)
+        attachments = try values.decodeIfPresent([DotImageAttachment].self, forKey: .attachments) ?? []
+    }
 }
 
 enum DotConnectionState: Equatable, Sendable {
@@ -63,7 +88,7 @@ enum DotChatError: Error, Equatable, LocalizedError {
     case invalidEndpoint, invalidResponse, responseTooLarge, unauthorized, unavailable
     case httpFailure(statusCode: Int, errorCode: String?)
     case invalidAuthorization, authorizationCancelled, missingEncryptionKey, persistenceUnavailable
-    case pendingMessage, endpointHasHistory, draftTooLarge
+    case pendingMessage, endpointHasHistory, draftTooLarge, invalidImage, tooManyImages, imageTooLarge
 
     /// Only network failures and server-directed throttling/transient statuses
     /// should keep the poller retrying. Other HTTP failures need user action.
@@ -103,6 +128,9 @@ enum DotChatError: Error, Equatable, LocalizedError {
         case .pendingMessage: return "Wait for the current message’s reply or delivery result."
         case .endpointHasHistory: return "Clear local history before changing the private relay."
         case .draftTooLarge: return "Messages must be at most 8 KiB."
+        case .invalidImage: return "This image could not be added. Choose a supported image file."
+        case .tooManyImages: return "Add up to four images per message."
+        case .imageTooLarge: return "This image exceeds the local image limit."
         }
     }
 }
@@ -161,8 +189,32 @@ struct DotChatArchive: Codable, Equatable, Sendable {
     var configuration: DotRelayConfiguration?
     var messages: [DotChatMessage] = []
     var draft = ""
+    var draftAttachments: [DotImageAttachment] = []
     var lastSequence: Int64 = 0
     var pendingMessageID: UUID?
     var seenEvents: [UUID] = []
     var unreadCount = 0
+
+    private enum CodingKeys: String, CodingKey {
+        case version, configuration, messages, draft, draftAttachments, lastSequence, pendingMessageID, seenEvents, unreadCount
+    }
+    init(version: Int = 1, configuration: DotRelayConfiguration? = nil, messages: [DotChatMessage] = [],
+         draft: String = "", draftAttachments: [DotImageAttachment] = [], lastSequence: Int64 = 0,
+         pendingMessageID: UUID? = nil, seenEvents: [UUID] = [], unreadCount: Int = 0) {
+        self.version = version; self.configuration = configuration; self.messages = messages
+        self.draft = draft; self.draftAttachments = draftAttachments; self.lastSequence = lastSequence
+        self.pendingMessageID = pendingMessageID; self.seenEvents = seenEvents; self.unreadCount = unreadCount
+    }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        configuration = try values.decodeIfPresent(DotRelayConfiguration.self, forKey: .configuration)
+        messages = try values.decode([DotChatMessage].self, forKey: .messages)
+        draft = try values.decode(String.self, forKey: .draft)
+        draftAttachments = try values.decodeIfPresent([DotImageAttachment].self, forKey: .draftAttachments) ?? []
+        lastSequence = try values.decode(Int64.self, forKey: .lastSequence)
+        pendingMessageID = try values.decodeIfPresent(UUID.self, forKey: .pendingMessageID)
+        seenEvents = try values.decode([UUID].self, forKey: .seenEvents)
+        unreadCount = try values.decode(Int.self, forKey: .unreadCount)
+    }
 }

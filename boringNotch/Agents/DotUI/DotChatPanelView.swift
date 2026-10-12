@@ -1,6 +1,7 @@
 // Modified 2026-10-12. SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DotChatView: View {
     @Bindable var store: DotChatStore
@@ -41,7 +42,8 @@ struct DotChatView: View {
                         .font(.caption).foregroundStyle(.cyan)
                 }
                 DotPendingControls(store: store, setupError: $setupError)
-                DotComposerRow(store: store, close: dismissDot, inputWindowAttached: inputFocus.attachComposer)
+                DotComposerRow(store: store, close: dismissDot, attachImage: openImagePicker,
+                    inputWindowAttached: inputFocus.attachComposer)
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
@@ -81,6 +83,23 @@ struct DotChatView: View {
     private func dismissDot() {
         inputFocus.dismiss(restoreForegroundApplication: true)
         viewModel.close(forced: true)
+    }
+
+    private func openImagePicker() {
+        guard let window = inputFocus.presentationAnchor, !inputFocus.isPickerActive else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff, .webP]
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Attach"
+        inputFocus.beginPicker(panel)
+        panel.beginSheetModal(for: window) { response in
+            Task { @MainActor in
+                self.inputFocus.endPickerAndFocusComposer()
+                if response == .OK { await self.store.addImageURLs(panel.urls) }
+            }
+        }
     }
 }
 
@@ -237,7 +256,10 @@ private struct DotMessageRow: View {
                         .accessibilityLabel("Dot")
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
-                DotMarkdownView(source: message.text)
+                ForEach(Array(message.attachments.enumerated()), id: \.element.id) { index, attachment in
+                    DotMessageImage(attachment: attachment, index: index + 1, count: message.attachments.count)
+                }
+                if !message.text.isEmpty { DotMarkdownView(source: message.text) }
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
                     Text(message.createdAt, format: .dateTime.hour().minute())
@@ -253,6 +275,38 @@ private struct DotMessageRow: View {
             .padding(.horizontal, 14).padding(.vertical, 12)
             .background(message.role == .user ? DotBubbleColor.user : DotBubbleColor.assistant,
                 in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        }
+    }
+}
+
+private struct DotMessageImage: View {
+    let attachment: DotImageAttachment
+    let index: Int
+    let count: Int
+
+    private var preferredSize: CGSize {
+        let scale = min(1, 240 / CGFloat(attachment.width), 180 / CGFloat(attachment.height))
+        return CGSize(width: CGFloat(attachment.width) * scale, height: CGFloat(attachment.height) * scale)
+    }
+
+    private func imageView(_ image: NSImage, width: CGFloat) -> some View {
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFit()
+            .frame(width: width, height: preferredSize.height * width / preferredSize.width)
+    }
+
+    var body: some View {
+        if let image = NSImage(data: attachment.data) {
+            ViewThatFits(in: .horizontal) {
+                imageView(image, width: preferredSize.width)
+                imageView(image, width: min(preferredSize.width, 180))
+                imageView(image, width: min(preferredSize.width, 120))
+                imageView(image, width: min(preferredSize.width, 80))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Attached image \(index) of \(count)")
         }
     }
 }
@@ -470,14 +524,49 @@ struct DotMarkdownBlock {
 private struct DotComposerRow: View {
     @Bindable var store: DotChatStore
     let close: () -> Void
+    let attachImage: () -> Void
     let inputWindowAttached: (NSWindow, NSTextView, Bool) -> Bool
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            DotComposer(text: $store.draft, send: { Task { await store.sendDraft() } }, close: close,
-                inputWindowAttached: inputWindowAttached)
-                .frame(height: 62)
-                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                if !store.draftAttachments.isEmpty || store.isImportingAttachments {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(store.draftAttachments.enumerated()), id: \.element.id) { index, attachment in
+                                DotDraftImage(attachment: attachment, index: index + 1) {
+                                    store.removeDraftAttachment(id: attachment.id)
+                                }
+                            }
+                            if store.isImportingAttachments {
+                                ProgressView().controlSize(.small)
+                                    .frame(width: 72, height: 72)
+                                    .accessibilityLabel("Preparing image attachment")
+                            }
+                        }
+                    }
+                    .scrollIndicators(.hidden)
+                    .frame(height: 72)
+                }
+                HStack(alignment: .bottom, spacing: 0) {
+                    Button(action: attachImage) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 15, weight: .medium))
+                            .frame(width: 32, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Attach images")
+                    .accessibilityLabel("Attach images")
+                    .disabled(store.draftAttachments.count >= DotChatLimits.imageCount || store.isImportingAttachments)
+                    DotComposer(text: $store.draft, send: { Task { await store.sendDraft() } }, close: close,
+                        addImageURLs: { urls in Task { await store.addImageURLs(urls) } },
+                        addImageData: { data in Task { await store.addImageData(data) } },
+                        inputWindowAttached: inputWindowAttached)
+                        .frame(height: 54)
+                }
+            }
+            .padding(4)
+            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             Button { Task { await store.sendDraft() } } label: {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 13, weight: .semibold))
@@ -489,6 +578,39 @@ private struct DotComposerRow: View {
             .accessibilityLabel("Send message")
             .disabled(!store.canSend)
         }
+    }
+}
+
+private struct DotDraftImage: View {
+    let attachment: DotImageAttachment
+    let index: Int
+    let remove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            if let image = NSImage(data: attachment.data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 72, height: 72)
+                    .clipped()
+                    .accessibilityLabel("Image attachment \(index)")
+            }
+            Button(action: remove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(.black.opacity(0.8), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(3)
+            .help("Remove image \(index)")
+            .accessibilityLabel("Remove image \(index)")
+        }
+        .frame(width: 72, height: 72)
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -506,9 +628,25 @@ private struct DotBottomPreference: PreferenceKey {
     private var localMonitor: Any?
     private var globalMonitor: Any?
     private var keyMonitor: Any?
+    private weak var pickerPanel: NSOpenPanel?
     private var shouldFocusComposerOnAppear = false
+    private(set) var isPickerActive = false
 
     var presentationAnchor: NSWindow? { ownerWindow }
+
+    func beginPicker(_ panel: NSOpenPanel) {
+        pickerPanel = panel
+        isPickerActive = true
+    }
+
+    func endPickerAndFocusComposer() {
+        pickerPanel = nil
+        isPickerActive = false
+        guard let notchWindow = ownerWindow as? BoringNotchSkyLightWindow else { return }
+        notchWindow.wantsKeyForTextInput = true
+        notchWindow.makeKeyAndOrderFront(nil)
+        if let composer { notchWindow.makeFirstResponder(composer) }
+    }
 
     func begin(viewModel: BoringViewModel) {
         self.viewModel = viewModel
@@ -536,14 +674,14 @@ private struct DotBottomPreference: PreferenceKey {
                 let point = event.window === window
                     ? window.convertPoint(toScreen: event.locationInWindow)
                     : NSEvent.mouseLocation
-                if !self.containsNotchContent(point, in: window) { self.dismissFromOutsideClick() }
+                if !self.isPickerActive && !self.containsNotchContent(point, in: window) { self.dismissFromOutsideClick() }
                 return event
             }
         }
         if globalMonitor == nil {
             globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    guard let self, let window = self.ownerWindow,
+                    guard let self, !self.isPickerActive, let window = self.ownerWindow,
                           !self.containsNotchContent(NSEvent.mouseLocation, in: window) else { return }
                     self.dismissFromOutsideClick()
                 }
@@ -551,7 +689,7 @@ private struct DotBottomPreference: PreferenceKey {
         }
         if keyMonitor == nil {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, let window = self.ownerWindow,
+                guard let self, !self.isPickerActive, let window = self.ownerWindow,
                       event.window === window, event.keyCode == 53 else { return event }
                 if (window.firstResponder as? NSTextView)?.hasMarkedText() == true { return event }
                 self.dismissFromEscape()
@@ -582,6 +720,9 @@ private struct DotBottomPreference: PreferenceKey {
     }
 
     func dismiss(restoreForegroundApplication: Bool) {
+        let activePanel = pickerPanel
+        pickerPanel = nil
+        isPickerActive = false
         if let notchWindow = ownerWindow as? BoringNotchSkyLightWindow {
             notchWindow.wantsKeyForTextInput = false
             if notchWindow.isKeyWindow { notchWindow.resignKey() }
@@ -599,6 +740,13 @@ private struct DotBottomPreference: PreferenceKey {
         ownerWindow = nil
         viewModel = nil
         composer = nil
+        if let activePanel {
+            if let parent = activePanel.sheetParent {
+                parent.endSheet(activePanel, returnCode: .cancel)
+            } else {
+                activePanel.orderOut(nil)
+            }
+        }
         if restoreForegroundApplication { application?.activate(options: []) }
     }
 
@@ -634,6 +782,8 @@ struct DotComposer: NSViewRepresentable {
     @Binding var text: String
     let send: () -> Void
     let close: () -> Void
+    let addImageURLs: ([URL]) -> Void
+    let addImageData: (Data) -> Void
     let inputWindowAttached: (NSWindow, NSTextView, Bool) -> Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -644,6 +794,9 @@ struct DotComposer: NSViewRepresentable {
         scroll.drawsBackground = false
         let editor = ComposerTextView()
         editor.didAttachWindow = inputWindowAttached
+        editor.addImageURLs = addImageURLs
+        editor.addImageData = addImageData
+        editor.registerForDraggedTypes([.fileURL])
         editor.delegate = context.coordinator
         editor.isRichText = false
         editor.isAutomaticQuoteSubstitutionEnabled = false
@@ -664,6 +817,10 @@ struct DotComposer: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
+        if let editor = scroll.documentView as? ComposerTextView {
+            editor.addImageURLs = addImageURLs
+            editor.addImageData = addImageData
+        }
         guard let editor = scroll.documentView as? NSTextView, !editor.hasMarkedText(), editor.string != text else { return }
         let selection = editor.selectedRange()
         editor.string = text
@@ -695,6 +852,44 @@ struct DotComposer: NSViewRepresentable {
 
     final class ComposerTextView: NSTextView {
         var didAttachWindow: ((NSWindow, NSTextView, Bool) -> Bool)?
+        var addImageURLs: (([URL]) -> Void)?
+        var addImageData: ((Data) -> Void)?
+
+        private func localImageURLs(from pasteboard: NSPasteboard) -> [URL] {
+            (pasteboard.pasteboardItems ?? []).compactMap { item in
+                guard let value = item.string(forType: .fileURL),
+                      let url = URL(string: value), url.isFileURL else { return nil }
+                let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+                    ?? UTType(filenameExtension: url.pathExtension)
+                guard let type, [UTType.png, .jpeg, .heic, .tiff, .webP].contains(where: { type.conforms(to: $0) })
+                else { return nil }
+                return url
+            }
+        }
+
+        override func paste(_ sender: Any?) {
+            let pasteboard = NSPasteboard.general
+            let urls = localImageURLs(from: pasteboard)
+            if !urls.isEmpty { addImageURLs?(urls); return }
+            for type in [UTType.png, .jpeg, .heic, .tiff, .webP] {
+                if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type.identifier)) {
+                    addImageData?(data)
+                    return
+                }
+            }
+            super.paste(sender)
+        }
+
+        override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+            if !localImageURLs(from: sender.draggingPasteboard).isEmpty { return .copy }
+            return super.draggingEntered(sender)
+        }
+
+        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            let urls = localImageURLs(from: sender.draggingPasteboard)
+            if !urls.isEmpty { addImageURLs?(urls); return true }
+            return super.performDragOperation(sender)
+        }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let window {

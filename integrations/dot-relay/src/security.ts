@@ -44,7 +44,12 @@ export async function readJSON(request: Request, limit = 131072): Promise<Record
     throw new RelayError("invalid_json");
   }
 }
-export function b64(bytes: Uint8Array): string { return btoa(String.fromCharCode(...bytes)); }
+export function b64(bytes: Uint8Array): string {
+  // Keep argument counts bounded for encrypted image payloads.
+  let binary="";
+  for(let offset=0;offset<bytes.length;offset+=8192)binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192));
+  return btoa(binary);
+}
 export function unb64(value: string): Uint8Array {
   try { return Uint8Array.from(atob(value), char => char.charCodeAt(0)); } catch { throw new RelayError("invalid_secret"); }
 }

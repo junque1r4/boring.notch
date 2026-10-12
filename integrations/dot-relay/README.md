@@ -19,7 +19,7 @@ queue described below. `/health` keeps
 `endToEndVerified` set to `false`; subscription readiness alone does not prove
 message delivery or a correlated reply.
 
-Only explicitly submitted chat text is relayed. Session metadata, logs and usage
+Only explicitly submitted chat text and attached still images are relayed. Session metadata, logs and usage
 readings have no route into this module. GitHub numeric owner `39351332` is checked
 at sign-in, token refresh, native/MCP requests and webhook delivery. The owner
 restriction fails closed; a public Worker URL is not public chat access.
@@ -73,7 +73,17 @@ Never deploy this channel to the corporate account.
 
 ## Native contract
 
-`POST /v1/messages` takes `{messageId: UUID, text: string}` (8 KiB UTF-8 maximum).
+`POST /v1/messages` takes `{messageId: UUID, text: string, attachments?: Image[]}`
+(8 KiB UTF-8 text maximum). An image is `{id: UUID, mimeType: "image/jpeg",
+data: base64, width: integer, height: integer}`. Up to four images are allowed,
+each at most 256 KiB decoded, with dimensions up to 1600 pixels. Empty text is
+accepted only with an image. Native imports normalize the original file before
+submission; the relay verifies bounded canonical base64, JPEG frame dimensions,
+MIME, IDs and field names. It does not claim to be a full JPEG decoder.
+Requests are stream-bounded at 1,450,000 bytes; encrypted rows fit below the
+SQLite 2 MB row limit. Image bytes stay encrypted with the message and share its
+seven-day deletion lifecycle. No public image URLs or new storage bindings are
+created. Text-only clients remain compatible.
 It returns `{messageId,status,sequence,subscriptionActive}`. Reusing an ID with
 identical content is idempotent; changed content returns 409. Explicit retries
 retain the same message ID. Acknowledgments never claim model processing.
@@ -114,7 +124,12 @@ these in oldest-first order by reading `notch_conversation_context` for each
 UUID and replying with a stable reply ID. A `message_already_replied` conflict
 means that originating message is complete and should be skipped. Failed,
 replied, and expired messages are excluded from this queue.
-`notch_conversation_context` returns at most 20 originating messages and 64 KiB.
+`notch_conversation_context` returns at most 20 originating messages and 64 KiB
+of text/metadata, plus at most four originating-message images as MCP image
+content blocks. Base64 is excluded from the text and structured metadata. Older
+messages include attachment metadata only; reading that message ID materializes
+its images. The signed webhook includes an optional attachment count, never
+image bytes. Readiness, notifications and native event polling exclude images.
 `notch_reply` requires `messageId`, stable UUID `replyId`, and at most 64 KiB text.
 It accepts one response per originating send and deduplicates retries.
 
@@ -143,10 +158,17 @@ redacted, and application errors expose fixed codes only.
 
 ## Verification and license
 
-The 31 Workers runtime tests passed on 2026-10-12; type generation/check and cf build passed.
+The 38 Workers runtime tests passed on 2026-10-12; type generation/check and cf build passed.
 The Workers runtime tests use explicit synthetic fixtures, never a Dot responder
 in deployed code. Tests cover payload bounds, OAuth/owner boundaries, callback
-verification, signing, encrypted persistence, expiry, idempotency and revocation.
+verification, signing, encrypted persistence, expiry, idempotency and revocation,
+image limits, changed-image conflicts, legacy text compatibility, owner-only
+image context and real MCP image block output. A native image-and-caption send
+received an automatic actual Dot reply identifying the test image's number;
+the reply appeared in the notch. See docs/VERIFICATION.md for dated evidence.
+
+Protocol references: [MCP image tool results](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#image-content)
+and [Cloudflare SQLite limits](https://developers.cloudflare.com/durable-objects/platform/limits/).
 The actual Dot subscription and callback verification are live and active. The actual Dot replied to a real native message after a diagnostic prompt in
 Safari. A later automatic event wake-up also produced a real reply inside the notch;
 a further automatic two-message recovery was verified. Sustained renewal
