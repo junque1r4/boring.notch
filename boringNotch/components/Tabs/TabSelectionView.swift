@@ -24,6 +24,7 @@ let tabs = [
 ]
 
 struct TabSelectionView: View {
+    @Environment(\.sharedDotLauncher) private var sharedDotLauncher
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @Default(.boringShelf) private var shelfEnabled
     @Namespace var animation
@@ -36,14 +37,23 @@ struct TabSelectionView: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(visibleTabs) { tab in
-                    TabButton(label: tab.label, icon: tab.icon, selected: coordinator.currentView == tab.view) {
-                        withAnimation(.smooth) {
-                            coordinator.currentView = tab.view
+                    Group {
+                        if tab.view == .dot && sharedDotLauncher {
+                            Color.clear.frame(width: 54, height: 26)
+                                .anchorPreference(key: DotLauncherAnchors.self, value: .bounds) { [.tab: $0] }
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        } else {
+                            TabButton(label: tab.label, icon: tab.icon, selected: coordinator.currentView == tab.view) {
+                                withAnimation(.smooth) {
+                                    coordinator.currentView = tab.view
+                                }
+                            }
                         }
                     }
                     .frame(height: 26)
                     .overlay(alignment: .topTrailing) {
-                        if tab.view == .dot && DotChatStore.shared.unreadCount > 0 {
+                        if tab.view == .dot && !sharedDotLauncher && DotChatStore.shared.unreadCount > 0 {
                             Text(DotChatStore.shared.unreadCount > 9 ? "9+" : "\(DotChatStore.shared.unreadCount)")
                                 .font(.system(size: 8, weight: .bold)).foregroundStyle(.black)
                                 .padding(.horizontal, 3).frame(minWidth: 12, minHeight: 12)

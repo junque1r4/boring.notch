@@ -17,6 +17,7 @@ import SwiftUIIntrospect
 @MainActor
 struct ContentView: View {
     var openDot: () -> Void = {}
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject var vm: BoringViewModel
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
@@ -98,6 +99,24 @@ struct ContentView: View {
         )
     }
 
+    private var dotAccessoryWidth: CGFloat { showsHeader ? 0 : 36 }
+
+    private var surfaceBottomRadius: CGFloat {
+        if vm.notchState == .open { return openedInsets.bottom }
+        return cornerRadiusInsets.closed.bottom * (cornerRadiusScaleFactor ?? 1)
+    }
+
+    private var dotFlightClearance: CGFloat {
+        let screen = vm.screenUUID.flatMap { NSScreen.screen(withUUID: $0) } ?? NSScreen.main
+        // A user can hide the software notch; the hardware cutout is still there.
+        return max(displayClosedNotchHeight, screen?.safeAreaInsets.top ?? 0) + 20
+    }
+
+    private var surfaceAnimation: Animation? {
+        guard !reduceMotion, Defaults[.enableOpeningAnimation] else { return nil }
+        return vm.notchState == .open ? StandardAnimations.open : StandardAnimations.close
+    }
+
     /// Closed-notch activities, newest first. A notification sits in front of
     /// music, so an incoming message takes over the display; when it expires
     /// it drops out of this list on its own and music comes back — no
@@ -146,14 +165,15 @@ struct ContentView: View {
     private var showsHeader: Bool {
         vm.notchState == .open
             && (notificationManager.activeNotification == nil || vm.isDotChatActive)
-            && !Defaults[.compactMode]
+            && (!Defaults[.compactMode] || coordinator.currentView == .dot)
     }
 
     /// Keep the parent gesture installed with the same view identity. Agents
     /// owns scrolling and selection while its list is actually on screen.
     private var isVisibleAgentsContent: Bool {
         vm.notchState == .open && (coordinator.currentView == .agents || coordinator.currentView == .dot)
-            && !Defaults[.compactMode] && (notificationManager.activeNotification == nil || vm.isDotChatActive)
+            && (!Defaults[.compactMode] || coordinator.currentView == .dot)
+            && (notificationManager.activeNotification == nil || vm.isDotChatActive)
     }
 
     /// The activity currently on top of the stack — what the chin has to be
@@ -275,28 +295,14 @@ struct ContentView: View {
                         vm.notchState == .open ? openedInsets.top : cornerRadiusInsets.closed.bottom
                     )
                     .padding([.horizontal, .bottom], vm.notchState == .open ? 12 : 0)
-                    .background(.black)
                     .clipShape(currentNotchShape)
-                          .overlay(alignment: .top) {
-                              displayClosedNotchHeight.isZero && vm.notchState == .closed ? nil
-                        : Rectangle()
-                            .fill(.black)
-                            .frame(height: 1)
-                            .padding(.horizontal, topCornerRadius)
-                    }
-                    .shadow(
-                        color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
-                            ? .black.opacity(0.7) : .clear, radius: 6
-                    )
-                    // Removed conditional bottom padding when using custom 0 notch to keep layout stable
+                    // The single shell below owns the fill and shadow. Content
+                    // clipping cannot remove or cover the persistent Dot icon.
                     .opacity((isNotchHeightZero && vm.notchState == .closed) ? 0.01 : 1)
 
                 HStack(alignment: .top, spacing: 0) {
-                    // Balance the shortcut's width without shifting the physical
-                    // notch. Only the right side draws or accepts input.
-                    if vm.notchState == .closed {
-                        Color.clear.frame(width: 36, height: 0).allowsHitTesting(false)
-                    }
+                    Color.clear.frame(width: dotAccessoryWidth, height: 0)
+                        .allowsHitTesting(false)
                 mainLayout
                     // alignment: .top matters here — without it this frame
                     // defaults to centering, and shrinking the height for a
@@ -306,17 +312,8 @@ struct ContentView: View {
                     // top-anchored origin. That's what read as "the notch
                     // sits a bit off the top of the screen."
                     .frame(height: vm.notchState == .open ? openNotchHeight : nil, alignment: .top)
-                    .conditionalModifier(true) { view in
-                        return view
-                            .animation(vm.notchState == .open ? StandardAnimations.open : StandardAnimations.close, value: vm.notchState)
-                            .animation(.smooth, value: gestureProgress)
-                            // Outermost on purpose: it only fires when the
-                            // closed-state content changes (the key is stable
-                            // across open/close), and when several keys change
-                            // at once the innermost animation wins, so the
-                            // open/close springs below keep precedence.
-                            .animation(.smooth(duration: 0.3), value: closedNotchContent)
-                    }
+                    .animation(.smooth, value: gestureProgress)
+                    .animation(.smooth(duration: 0.3), value: closedNotchContent)
                     .contentShape(Rectangle())
                     .onHover { hovering in
                         handleHover(hovering)
@@ -393,15 +390,24 @@ struct ContentView: View {
                         //                    }
                         //                    .keyboardShortcut("E", modifiers: .command)
                     }
-                    // A separate hit target outside the main notch's hover and
-                    // gesture handlers: approaching Dot must not open Home first.
-                    if vm.notchState == .closed {
-                        DotClosedNotchLauncher(height: max(28, displayClosedNotchHeight)) {
-                            hoverTask?.cancel()
-                            openDot()
-                        }
-                    }
+                    // Geometry only: the actual button remains mounted in
+                    // the overlay as it travels between accessory and tab.
+                    Color.clear
+                        .frame(width: dotAccessoryWidth, height: max(32, displayClosedNotchHeight))
+                        .anchorPreference(key: DotLauncherAnchors.self, value: .bounds) { [.accessory: $0] }
+                        .allowsHitTesting(false)
                 }
+                .background {
+                    DotNotchSurface(leadingInset: dotAccessoryWidth,
+                                    topRadius: topCornerRadius,
+                                    bottomRadius: surfaceBottomRadius)
+                        .fill(.black)
+                        .shadow(color: vm.notchState == .open && Defaults[.enableShadow]
+                                ? .black.opacity(0.35) : .clear, radius: 6)
+                }
+                .animation(surfaceAnimation, value: vm.notchState)
+                .animation(surfaceAnimation, value: showsHeader)
+                .environment(\.sharedDotLauncher, true)
                 if vm.chinHeight > 0 {
                     Rectangle()
                         .fill(Color.black.opacity(0.01))
@@ -411,6 +417,15 @@ struct ContentView: View {
         }
         .padding(.bottom, 8)
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
+        .overlayPreferenceValue(DotLauncherAnchors.self) { anchors in
+            DotLauncherOverlay(anchors: anchors, useTab: showsHeader,
+                               clearanceY: dotFlightClearance,
+                               motion: surfaceAnimation,
+                               onHover: handleDotHover) {
+                hoverTask?.cancel()
+                openDot()
+            }
+        }
         .ignoresSafeArea(.all)
         .compositingGroup()
         .scaleEffect(
@@ -420,6 +435,12 @@ struct ContentView: View {
         )
         .animation(.smooth, value: gestureProgress)
         .background(dragDetector)
+        .transaction { transaction in
+            if reduceMotion || !Defaults[.enableOpeningAnimation] {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+        }
         .preferredColorScheme(.dark)
         .environmentObject(vm)
         .onChange(of: dropInteraction.anyDropZoneTargeting) { _, isTargeted in
@@ -588,7 +609,7 @@ struct ContentView: View {
                     if let notification = notificationManager.activeNotification, !vm.isDotChatActive {
                         NotificationExpandedView(notification: notification)
                             .id(notification.id)
-                    } else if Defaults[.compactMode] {
+                    } else if Defaults[.compactMode] && coordinator.currentView != .dot {
                         // Player only — no tab switching, so currentView is
                         // ignored here rather than offering a shelf the
                         // compact layout has no room (or tab bar) for.
@@ -627,11 +648,7 @@ struct ContentView: View {
                         }
                     }
                 }
-                .transition(
-                    .scale(scale: 0.8, anchor: .top)
-                    .combined(with: .opacity)
-                    .animation(.smooth(duration: 0.35))
-                )
+                .transition(.opacity.animation(reduceMotion ? nil : .easeOut(duration: 0.16)))
                 .zIndex(1)
                 .allowsHitTesting(vm.notchState == .open)
                 .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
@@ -887,6 +904,16 @@ extension ContentView {
         }
     }
 
+    private func handleDotHover(_ hovering: Bool) {
+        // A closed Dot hover never opens Home. Once open, keep the same exit
+        // grace period while moving between the shared icon and panel content.
+        if vm.notchState == .open {
+            handleHover(hovering)
+        } else if hovering {
+            hoverTask?.cancel()
+        }
+    }
+
     private func handleHover(_ hovering: Bool) {
         if coordinator.firstLaunch { return }
         hoverTask?.cancel()
@@ -1137,45 +1164,4 @@ struct GeneralDropTargetDelegate: DropDelegate {
     return ContentView()
         .environmentObject(vm)
         .frame(width: vm.notchSize.width, height: vm.notchSize.height)
-}
-
-/// Persistent closed-notch shortcut. Uses the same observed unread state as the
-/// transcript and fourth tab; no separate polling or message content is exposed.
-private struct DotClosedNotchLauncher: View {
-    let height: CGFloat
-    let open: () -> Void
-    private var store: DotChatStore { .shared }
-
-    var body: some View {
-        Button(action: open) {
-            Image("DotLogo")
-                .renderingMode(.original)
-                .resizable().scaledToFit()
-                .frame(width: 23, height: 23)
-                .frame(width: 36, height: height)
-                .background(alignment: .trailing) {
-                    UnevenRoundedRectangle(bottomTrailingRadius: 12)
-                        // Cover the notch's curved right edge so no wallpaper
-                        // seam appears between it and the shortcut.
-                        .fill(.black).frame(width: 56)
-                }
-                .overlay(alignment: .topTrailing) {
-                    if store.unreadCount > 0 {
-                        Text(store.unreadCount > 9 ? "9+" : "\(store.unreadCount)")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 3)
-                            .frame(minWidth: 12, minHeight: 12)
-                            .background(Color(red: 1, green: 0.8, blue: 57.0 / 255), in: Capsule())
-                            .padding(.top, 2).padding(.trailing, 2)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Open Dot chat")
-        .accessibilityLabel("Open Dot chat")
-        .accessibilityValue(store.unreadCount > 0 ? "\(store.unreadCount) unread replies" : "No unread Dot replies")
-    }
 }
