@@ -134,7 +134,7 @@ struct ContentView: View {
     /// lever anyway.
     private var openNotchHeight: CGFloat? {
         if notificationManager.activeNotification != nil && !vm.isDotChatActive { return 132 }
-        if vm.notchState == .open && coordinator.currentView == .dot { return dotNotchSize.height }
+        if vm.notchState == .open && coordinator.currentView == .dot { return vm.notchSize.height }
         return Defaults[.compactMode] ? nil : vm.notchSize.height
     }
 
@@ -365,19 +365,12 @@ struct ContentView: View {
                     }
                     .onChange(of: coordinator.currentView) { _, selected in
                         if vm.notchState == .open {
-                            vm.notchSize = selected == .dot ? dotNotchSize : openNotchSize
+                            vm.notchSize = vm.size(for: selected)
                         }
-                        if selected != .dot {
-                            DotChatInputFocus.restore(for: vm, restoringForegroundApplication: true)
-                        }
-                    }
-                    .onChange(of: vm.notchState) { _, state in
-                        if state != .open { DotChatInputFocus.restore(for: vm) }
                     }
                     .onChange(of: vm.isDotChatActive) { _, _ in
                         scheduleCloseIfNotHovering(overNotch: vm)
                     }
-                    .onDisappear { DotChatInputFocus.restore(for: vm) }
                     .sensoryFeedback(.alignment, trigger: haptics)
                     .contextMenu {
                         Button("Settings") {
@@ -434,7 +427,7 @@ struct ContentView: View {
                 }
 
                 dropInteraction.dropEvent = false
-                if !SharingStateManager.shared.preventNotchClose && !vm.isDotChatActive {
+                if !SharingStateManager.shared.preventNotchClose {
                     vm.close()
                 }
             }
@@ -607,11 +600,8 @@ struct ContentView: View {
                         case .agents:
                             AgentsView(popoverActive: $vm.isPopoverActive, notchViewModel: vm)
                         case .dot:
-                            DotChatView(store: .shared, viewModel: vm) {
-                                DotChatInputFocus.restore(for: vm, restoringForegroundApplication: true)
-                                vm.close()
-                            }
-                            .frame(width: dotNotchSize.width, height: dotNotchSize.height - 60)
+                            DotChatView(store: .shared, viewModel: vm)
+                            .frame(width: max(0, vm.notchSize.width - 62), height: vm.notchSize.height - 60)
                         case .shelf:
                             ShelfView(
                                 dropInteraction: vm.dropInteraction,
@@ -864,7 +854,7 @@ extension ContentView {
     private func scheduleCloseIfNotHovering(overNotch notchViewModel: BoringViewModel) {
         guard notchViewModel.notchState == .open,
               !isHovering,
-              !notchViewModel.isPopoverActive, !notchViewModel.isDotChatActive else { return }
+              !notchViewModel.isPopoverActive else { return }
         hoverTask?.cancel()
         hoverTask = Task {
             try? await Task.sleep(for: .milliseconds(hoverExitDelayMilliseconds))
@@ -872,7 +862,7 @@ extension ContentView {
             await MainActor.run {
                 if self.vm.notchState == .open,
                    !self.isHovering,
-                   !self.vm.isPopoverActive, !self.vm.isDotChatActive,
+                   !self.vm.isPopoverActive,
                    !SharingStateManager.shared.preventNotchClose {
                     self.vm.close()
                 }
@@ -931,10 +921,10 @@ extension ContentView {
                     }
 
                     // Pointer left — let the notification age out again.
-                    if !self.vm.isDotChatActive { self.notificationManager.resumeDismiss() }
+                    self.notificationManager.resumeDismiss()
 
                     if self.vm.notchState == .open,
-                       !self.vm.isPopoverActive, !self.vm.isDotChatActive,
+                       !self.vm.isPopoverActive,
                        !SharingStateManager.shared.preventNotchClose {
                         self.vm.close()
                     }

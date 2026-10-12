@@ -54,10 +54,8 @@ final class NotchWindowManager {
 
     func screenLocked() {
         // Dot transcripts and composers are dismissed before the lock screen.
-        DotChatInputFocus.restore(viewModel: primaryViewModel)
         primaryViewModel.close(forced: true)
         for context in contexts.values {
-            DotChatInputFocus.restore(viewModel: context.viewModel)
             context.viewModel.close(forced: true)
         }
         isScreenLocked = true
@@ -137,7 +135,12 @@ final class NotchWindowManager {
     }
 
     private func createBoringNotchWindow(for screen: NSScreen, with viewModel: BoringViewModel) -> NSWindow {
-        let rect = NSRect(x: 0, y: 0, width: windowSize.width, height: windowSize.height)
+        let rect = NSRect(
+            x: 0,
+            y: 0,
+            width: min(windowSize.width, screen.frame.width),
+            height: min(windowSize.height, screen.frame.height)
+        )
         let styleMask: NSWindow.StyleMask = [.borderless, .nonactivatingPanel, .utilityWindow, .hudWindow]
 
         let window = BoringNotchSkyLightWindow(contentRect: rect, styleMask: styleMask, backing: .buffered, defer: false)

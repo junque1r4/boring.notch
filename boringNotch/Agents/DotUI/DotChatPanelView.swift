@@ -5,7 +5,8 @@ import SwiftUI
 struct DotChatView: View {
     @Bindable var store: DotChatStore
     let viewModel: BoringViewModel
-    let close: () -> Void
+    @ObservedObject private var coordinator = BoringViewCoordinator.shared
+    @State private var inputFocus = DotChatInputFocus()
     @State private var endpoint = ""
     @State private var setupError: String?
     @State private var atLatest = true
@@ -14,7 +15,7 @@ struct DotChatView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            DotChatHeader(store: store, close: close, editingConnection: $editingConnection)
+            DotChatHeader(store: store, close: dismissDot, editingConnection: $editingConnection)
             if store.configuration == nil || editingConnection {
                 DotConnectionSetup(store: store, endpoint: $endpoint, setupError: $setupError,
                     editingConnection: $editingConnection, connect: connect)
@@ -35,20 +36,24 @@ struct DotChatView: View {
                     .font(.caption).foregroundStyle(.cyan)
             }
             DotPendingControls(store: store, setupError: $setupError)
-            DotComposerRow(store: store, close: close)
+            DotComposerRow(store: store, close: dismissDot, inputWindowAttached: inputFocus.attachComposer)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(.black.opacity(0.96), in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.14)))
         .foregroundStyle(.white)
         .onAppear {
-            DotChatInputFocus.capture()
+            inputFocus.begin(viewModel: viewModel)
             store.setPresentation(visible: true, atLatest: true)
         }
         .onDisappear {
-            DotChatInputFocus.release(viewModel: viewModel)
+            inputFocus.dismiss(restoreForegroundApplication: false)
             store.setPresentation(visible: false, atLatest: false)
             try? store.flush()
+        }
+        .background(DotParentWindowReader { inputFocus.attach(to: $0) })
+        .onChange(of: coordinator.currentView) { _, selected in
+            if selected != .dot { inputFocus.dismiss(restoreForegroundApplication: true) }
         }
         .onChange(of: editingConnection) { _, editing in
             if editing { endpoint = store.configuration?.origin.absoluteString ?? "" }
@@ -62,6 +67,11 @@ struct DotChatView: View {
         }
         Task { await store.connect(presentationAnchor: window) }
     }
+
+    private func dismissDot() {
+        inputFocus.dismiss(restoreForegroundApplication: true)
+        viewModel.close(forced: true)
+    }
 }
 
 private struct DotChatHeader: View {
@@ -71,7 +81,7 @@ private struct DotChatHeader: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Image("DotLogo")
+            Image("DotLogo").renderingMode(.original)
                 .resizable().scaledToFit().frame(width: 25, height: 25)
                 .accessibilityLabel("Dot logo")
             VStack(alignment: .leading, spacing: 1) {
@@ -209,11 +219,13 @@ private struct DotMessageRow: View {
 private struct DotComposerRow: View {
     @Bindable var store: DotChatStore
     let close: () -> Void
+    let inputWindowAttached: (NSWindow, Bool) -> Bool
 
     var body: some View {
         VStack(spacing: 4) {
             HStack(alignment: .bottom) {
-                DotComposer(text: $store.draft, send: { Task { await store.sendDraft() } }, close: close)
+                DotComposer(text: $store.draft, send: { Task { await store.sendDraft() } }, close: close,
+                    inputWindowAttached: inputWindowAttached)
                     .frame(height: 62)
                     .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
                 Button("Send") { Task { await store.sendDraft() } }
@@ -231,34 +243,68 @@ private struct DotBottomPreference: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-/// Tracks key-window focus only while the embedded composer needs text input.
+/// Owns focus and outside-click dismissal for one notch window.
 @MainActor final class DotChatInputFocus {
-    private static weak var previousApplication: NSRunningApplication?
-    fileprivate static weak var inputWindow: BoringNotchSkyLightWindow?
+    private weak var previousApplication: NSRunningApplication?
+    private weak var ownerWindow: NSWindow?
+    private weak var viewModel: BoringViewModel?
+    private var localMonitor: Any?
+    private var globalMonitor: Any?
+    private var shouldFocusComposerOnAppear = false
 
-    static func capture() {
-        guard previousApplication == nil else { return }
+    func begin(viewModel: BoringViewModel) {
+        self.viewModel = viewModel
+        viewModel.isDotInputActive = true
         previousApplication = NSWorkspace.shared.frontmostApplication
+        shouldFocusComposerOnAppear = viewModel.isMouseHovering()
     }
 
-    static func release(viewModel _: BoringViewModel) {
-        guard let inputWindow else { return }
-        inputWindow.wantsKeyForTextInput = false
-        if inputWindow.isKeyWindow { inputWindow.resignKey() }
-        self.inputWindow = nil
+    func attach(to window: NSWindow?) {
+        guard let window, ownerWindow !== window else { return }
+        ownerWindow = window
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            if event.window !== self.ownerWindow { self.dismissFromOutsideClick() }
+            return event
+        }
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.ownerWindow,
+                      !window.frame.contains(NSEvent.mouseLocation) else { return }
+                self.dismissFromOutsideClick()
+            }
+        }
     }
 
-    static func restore(for viewModel: BoringViewModel, restoringForegroundApplication: Bool = false) {
-        release(viewModel: viewModel)
+    func attachComposer(to window: NSWindow, userInitiated: Bool) -> Bool {
+        guard let notchWindow = window as? BoringNotchSkyLightWindow else { return false }
+        ownerWindow = notchWindow
+        guard userInitiated || shouldFocusComposerOnAppear else { return false }
+        notchWindow.wantsKeyForTextInput = true
+        return true
+    }
+
+    func dismiss(restoreForegroundApplication: Bool) {
+        if let notchWindow = ownerWindow as? BoringNotchSkyLightWindow {
+            notchWindow.wantsKeyForTextInput = false
+            if notchWindow.isKeyWindow { notchWindow.resignKey() }
+        }
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
+        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+        localMonitor = nil
+        globalMonitor = nil
+        viewModel?.isDotInputActive = false
         let application = previousApplication
         previousApplication = nil
-        if restoringForegroundApplication { application?.activate(options: []) }
+        ownerWindow = nil
+        viewModel = nil
+        if restoreForegroundApplication { application?.activate(options: []) }
     }
 
-    static func restoreForegroundApplication() {
-        let application = previousApplication
-        previousApplication = nil
-        application?.activate(options: [])
+    private func dismissFromOutsideClick() {
+        guard let viewModel else { return }
+        dismiss(restoreForegroundApplication: false)
+        viewModel.close(forced: true)
     }
 }
 
@@ -268,6 +314,7 @@ struct DotComposer: NSViewRepresentable {
     @Binding var text: String
     let send: () -> Void
     let close: () -> Void
+    let inputWindowAttached: (NSWindow, Bool) -> Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -276,6 +323,7 @@ struct DotComposer: NSViewRepresentable {
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         let editor = ComposerTextView()
+        editor.didAttachWindow = inputWindowAttached
         editor.delegate = context.coordinator
         editor.isRichText = false
         editor.isAutomaticQuoteSubstitutionEnabled = false
@@ -326,18 +374,23 @@ struct DotComposer: NSViewRepresentable {
     }
 
     final class ComposerTextView: NSTextView {
+        var didAttachWindow: ((NSWindow, Bool) -> Bool)?
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if let window {
-                if let notchWindow = window as? BoringNotchSkyLightWindow {
-                    DotChatInputFocus.capture()
-                    DotChatInputFocus.inputWindow = notchWindow
-                    notchWindow.wantsKeyForTextInput = true
-                }
-                DispatchQueue.main.async { [weak self, weak window] in
-                    if let self { window?.makeFirstResponder(self) }
+                let shouldFocus = didAttachWindow?(window, false) ?? false
+                if shouldFocus {
+                    DispatchQueue.main.async { [weak self, weak window] in
+                        if let self { window?.makeFirstResponder(self) }
+                    }
                 }
             }
+        }
+        override func mouseDown(with event: NSEvent) {
+            if let window, didAttachWindow?(window, true) == true {
+                window.makeFirstResponder(self)
+            }
+            super.mouseDown(with: event)
         }
     }
 }

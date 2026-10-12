@@ -29,6 +29,7 @@ final class BoringViewModel: NSObject, ObservableObject {
     @Published var isPopoverActive: Bool = false
     /// Dot is an ordinary notch tab, so its visibility follows the selected tab.
     var isDotChatActive: Bool { notchState == .open && coordinator.currentView == .dot }
+    @Published var isDotInputActive = false
 
     @Published var screenUUID: String?
 
@@ -93,6 +94,11 @@ final class BoringViewModel: NSObject, ObservableObject {
     }
 
     // Computed property for effective notch height
+    var dotSize: CGSize {
+        let screen = screenUUID.flatMap { NSScreen.screen(withUUID: $0) } ?? NSScreen.main
+        return DotNotchSizing.size(available: screen?.frame.size ?? dotNotchSize)
+    }
+
     var effectiveClosedNotchHeight: CGFloat {
         let currentScreen = screenUUID.flatMap { NSScreen.screen(withUUID: $0) }
         let noNotchAndFullscreen = hideOnClosed && (currentScreen?.safeAreaInsets.top ?? 0 <= 0 || currentScreen == nil)
@@ -178,7 +184,7 @@ final class BoringViewModel: NSObject, ObservableObject {
     func open() -> Bool {
         guard !coordinator.firstLaunch, notchState != .open else { return false }
 
-        self.notchSize = coordinator.currentView == .dot ? dotNotchSize : openNotchSize
+        self.notchSize = size(for: coordinator.currentView)
         self.notchState = .open
 
         // Force music information update when notch is opened
@@ -187,11 +193,13 @@ final class BoringViewModel: NSObject, ObservableObject {
         return true
     }
 
-    func close(forced: Bool = false) {
+    @discardableResult
+    func close(forced: Bool = false) -> Bool {
         // Do not close while a share picker or sharing service is active
-        if SharingStateManager.shared.preventNotchClose && !forced {
-            return
+        if !forced && (SharingStateManager.shared.preventNotchClose || isDotInputActive) {
+            return false
         }
+        isDotInputActive = false
         // The camera is on-demand: the notch closing always ends capture.
         // Intent clears too, so no recovery path can reopen it while closed.
         camera.stopSession()
@@ -211,6 +219,7 @@ final class BoringViewModel: NSObject, ObservableObject {
         } else if !coordinator.openLastTabByDefault {
             coordinator.currentView = .home
         }
+        return true
     }
 
     func closeHello() {
@@ -219,6 +228,14 @@ final class BoringViewModel: NSObject, ObservableObject {
                 coordinator.helloAnimationRunning = false
                 close()
             }
+        }
+    }
+
+    func size(for view: NotchViews) -> CGSize {
+        switch view {
+        case .home, .shelf: return openNotchSize
+        case .agents: return agentsNotchSize
+        case .dot: return dotSize
         }
     }
 }

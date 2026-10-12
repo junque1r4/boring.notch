@@ -18,6 +18,9 @@ struct TabButton: View {
         Button(action: onClick) {
             Group {
                 if label == "Agents Status" { AgentsRobotIcon() }
+                else if label == "Dot" {
+                    Image("DotLogo").renderingMode(.original).resizable().scaledToFit().frame(width: 24, height: 24)
+                }
                 else { Image(systemName: icon) }
             }
                 .padding(.horizontal, 15)
