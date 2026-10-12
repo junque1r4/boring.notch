@@ -229,7 +229,7 @@ private struct DotMessageRow: View {
 private struct DotComposerRow: View {
     @Bindable var store: DotChatStore
     let close: () -> Void
-    let inputWindowAttached: (NSWindow, Bool) -> Bool
+    let inputWindowAttached: (NSWindow, NSTextView, Bool) -> Bool
 
     var body: some View {
         VStack(spacing: 4) {
