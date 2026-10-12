@@ -182,3 +182,26 @@ upstream helper/framework boundaries documented above remain.
 - Screenshot: `outputs/Dot-chat-adaptive-bubbles.jpg` in the parent delivery
   workspace. This visual-only refinement did not rerun the earlier 143-test suite
   or change/benchmark the relay. Earlier latency and hardware limits still apply.
+
+## 12 October 2026 — Closed-notch Dot shortcut and stable signing
+
+- Universal Release built and codesign verification passed. The closed notch now
+  has an original-avatar shortcut with a black background overlapping its curved
+  right edge by 20pt, with a separate 36pt input region and balanced layout.
+- Live Mac: clicking the closed shortcut opened Dot directly and focused the
+  composer. A real test message received “Dot shortcut ready”; while chat was
+  closed the shortcut showed a 1 badge. The badge survived an app restart, then
+  cleared after opening the reply. The seam-free closed state and unread badge
+  were captured in outputs/Dot-closed-shortcut.jpg and Dot-shortcut-unread.jpg
+  in the parent delivery workspace.
+- Replaced ad-hoc signing with the available Apple Development certificate.
+  Verified the designated requirement is certificate/bundle based and identical
+  before and after a code-changing rebuild. After the owner approved migration
+  access, the changed build launched in about two seconds, restored encrypted
+  history and relay sign-in, and opened chat without a further Keychain prompt.
+- Both Keychain items remain protected: OAuth credentials and local history key.
+  No secret export, item deletion or blanket Keychain access was used. Certificate
+  replacement, revocation or a new signing identity can require approval again.
+- This is a development-signed local build, not notarized. Earlier physical
+  trackpad, display, screen-lock and long-term relay limits remain open. The
+  earlier automated test suite was not rerun for this view/signing-only change.

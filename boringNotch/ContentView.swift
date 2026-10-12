@@ -1176,6 +1176,6 @@ private struct DotClosedNotchLauncher: View {
         .buttonStyle(.plain)
         .help("Open Dot chat")
         .accessibilityLabel("Open Dot chat")
-        .accessibilityValue(store.unreadCount > 0 ? "\(store.unreadCount) unread replies" : "No unread replies")
+        .accessibilityValue(store.unreadCount > 0 ? "\(store.unreadCount) unread replies" : "No unread Dot replies")
     }
 }
