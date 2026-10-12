@@ -87,7 +87,7 @@ struct AgentsDashboard: View {
     }
 
     private func dashboard(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: compact ? 4 : 3) {
             HStack {
                 Text("Agents Status").font(.system(size: 13, weight: .semibold))
                 if !compact { Text("ON THIS MAC").font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(.secondary) }
@@ -107,7 +107,7 @@ struct AgentsDashboard: View {
                     Spacer()
                     Button("View") { navigate(alert) }
                     Button(action: dismissAlert) { Image(systemName: "xmark") }.accessibilityLabel("Dismiss agent alert")
-                }.padding(compact ? 3 : 6).background(alert.state.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                }.padding(compact ? 3 : 4).background(alert.state.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: compact ? 4 : 6) {
@@ -212,7 +212,7 @@ struct AgentQuotaCard: View {
                     }
                 }.font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundStyle(headline?.isStale(at: now) == true || resetPassed ? .orange : .secondary)
-            }.padding(.horizontal, compact ? 7 : 9).padding(.vertical, 5)
+            }.padding(.horizontal, compact ? 7 : 9).padding(.vertical, compact ? 4 : 3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
         }
@@ -271,7 +271,7 @@ struct AgentActivityCalendar: View {
                 if let currentWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start,
                    let firstWeek = calendar.date(byAdding: .weekOfYear, value: -11, to: currentWeek) {
                     ForEach(0..<12, id: \.self) { week in
-                        VStack(spacing: 2) {
+                        VStack(spacing: 1) {
                             ForEach(0..<7, id: \.self) { weekday in
                                 if let date = calendar.date(byAdding: .day, value: week * 7 + weekday, to: firstWeek) {
                                     activityCell(for: date)
@@ -282,7 +282,7 @@ struct AgentActivityCalendar: View {
                 }
             }.accessibilityElement(children: .contain).accessibilityLabel("12-week local session activity calendar")
         }
-        .padding(.horizontal, 8).padding(.vertical, 5)
+        .padding(.horizontal, 8).padding(.vertical, 3)
         .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
     }
 
@@ -292,7 +292,7 @@ struct AgentActivityCalendar: View {
         let tint: Color = count == 0 ? .white.opacity(0.035) : .cyan.opacity(count == 1 ? 0.42 : count < 4 ? 0.68 : 1)
         return RoundedRectangle(cornerRadius: 1.5)
             .fill(isFuture ? .clear : tint)
-            .frame(width: 6, height: 6)
+            .frame(width: 5, height: 5)
             .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(.white.opacity(isFuture ? 0.035 : 0.025), lineWidth: 0.5))
             .help(dayDescription(date, count: count, isFuture: isFuture))
             .accessibilityLabel(dayDescription(date, count: count, isFuture: isFuture))

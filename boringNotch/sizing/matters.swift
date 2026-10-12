@@ -11,7 +11,7 @@ import SwiftUI
 
 let shadowPadding: CGFloat = 20
 let openNotchSize: CGSize = .init(width: 640, height: 190)
-let agentsNotchSize: CGSize = .init(width: 640, height: 330)
+let agentsNotchSize: CGSize = .init(width: 640, height: 440)
 /// The embedded Dot transcript needs more room than the music and Agents tabs.
 /// The window remains transparent outside the actual notch content.
 let dotNotchSize: CGSize = .init(width: 760, height: 450)
