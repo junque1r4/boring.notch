@@ -90,3 +90,14 @@ See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.
   allowing remembered Keychain access to survive code changes. Existing secrets
   and Keychain access controls are preserved. The first transition can require
   the owner to approve both saved items with Always Allow.
+
+## 12 October 2026 — Dot motion and restored notch behavior
+
+- Keep one persistent original-avatar launcher between the closed dock and Dot
+  tab, with independent hover/press reactions and a single unread-reply nod.
+- Restore the original main-notch hover shadow, open/close timing and content
+  expansion transition. Keep the right extension at the existing closed height.
+- Capture the settled closed dock before opening so closing returns toward that
+  endpoint rather than following the shrinking expanded notch's right edge.
+- Honor Reduce Motion and animation preferences; keep Dot accessible in compact
+  mode without replacing the normal Home compact-player behavior.

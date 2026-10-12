@@ -1,4 +1,5 @@
 // Modified 2026-10-12. SPDX-License-Identifier: GPL-3.0-only
+import Defaults
 import SwiftUI
 
 enum DotLauncherSlot: Hashable {
@@ -23,50 +24,43 @@ extension EnvironmentValues {
     }
 }
 
-/// A single silhouette spans the notch and its accessory. The invisible left
-/// margin balances the right extension without shifting the physical notch.
-struct DotNotchSurface: Shape {
-    var leadingInset: CGFloat
-    var topRadius: CGFloat
-    var bottomRadius: CGFloat
-
-    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
-        get { .init(leadingInset, .init(topRadius, bottomRadius)) }
-        set {
-            leadingInset = newValue.first
-            topRadius = newValue.second.first
-            bottomRadius = newValue.second.second
-        }
-    }
-
-    func path(in rect: CGRect) -> Path {
-        let inset = min(max(0, leadingInset), rect.width)
-        return NotchShape(topCornerRadius: topRadius, bottomCornerRadius: bottomRadius)
-            .path(in: CGRect(x: rect.minX + inset, y: rect.minY,
-                             width: max(0, rect.width - inset), height: rect.height))
-    }
-}
-
 /// One persistent button, above the content clipping and transitions. The
 /// accessory and tab emit geometry only; neither creates a second avatar.
 struct DotLauncherOverlay: View {
     let anchors: [DotLauncherSlot: Anchor<CGRect>]
     let useTab: Bool
+    let isOpen: Bool
+    /// The closed dock center in this overlay's coordinate space. Used only
+    /// when the overlay first appears while the notch is already open.
+    let closedFallbackOffset: CGPoint
     let clearanceY: CGFloat
     let motion: Animation?
     let onHover: (Bool) -> Void
     let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Default(.enableOpeningAnimation) private var enableOpeningAnimation
     @State private var source = CGPoint.zero
     @State private var destination = CGPoint.zero
     @State private var progress: CGFloat = 0
     @State private var placed = false
+    @State private var routeIsOpen = false
+    @State private var isAnimatingRoute = false
+    @State private var closedAnchor = DotLauncherClosedAnchor()
+    @State private var transitionID = 0
+
+    private var routeMotion: Animation? {
+        reduceMotion || !enableOpeningAnimation ? nil : motion
+    }
 
     var body: some View {
         GeometryReader { geometry in
             let accessory = anchors[.accessory].map { geometry[$0] }
             let tab = anchors[.tab].map { geometry[$0] }
-            let target = useTab ? (tab ?? accessory) : accessory
-            let measurement = DotLauncherMeasurement(rect: target, useTab: useTab)
+            let measurement = DotLauncherMeasurement(
+                closedRect: accessory,
+                tabRect: useTab ? tab : accessory,
+                isOpen: isOpen
+            )
             DotLauncherButton(unreadCount: DotChatStore.shared.unreadCount, action: action)
                 .position(x: 0, y: 0)
                 .modifier(DotLauncherTravel(progress: progress, source: source,
@@ -75,33 +69,128 @@ struct DotLauncherOverlay: View {
                 .allowsHitTesting(placed)
                 .onHover(perform: onHover)
                 .onChange(of: measurement, initial: true) { _, newValue in
-                    guard let rect = newValue.rect else { return }
-                    let center = CGPoint(x: rect.midX, y: rect.midY)
-                    // Endpoints come from layout in the fixed window space.
-                    // Never interpolate them alongside the flight progress.
+                    if let rect = newValue.closedRect {
+                        let center = CGPoint(x: rect.midX, y: rect.midY)
+                        closedAnchor.observe(center, isOpen: newValue.isOpen,
+                                             routeAnimating: isAnimatingRoute || newValue.isOpen != routeIsOpen)
+                    }
+
+                    if !placed {
+                        guard newValue.isOpen ? newValue.tabRect != nil : newValue.closedRect != nil else {
+                            return
+                        }
+                        let stableClosed = closedAnchor.resolvedCenter(
+                            fallbackOffset: closedFallbackOffset,
+                            containerWidth: geometry.size.width
+                        )
+                        let tabCenter = newValue.tabRect.map { CGPoint(x: $0.midX, y: $0.midY) }
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            source = stableClosed
+                            destination = newValue.isOpen ? (tabCenter ?? stableClosed) : stableClosed
+                            progress = newValue.isOpen ? 1 : 0
+                            placed = true
+                            routeIsOpen = newValue.isOpen
+                        }
+                        return
+                    }
+
+                    let fallback = closedAnchor.resolvedCenter(
+                        fallbackOffset: closedFallbackOffset,
+                        containerWidth: geometry.size.width
+                    )
+                    if newValue.isOpen == routeIsOpen {
+                        if !isAnimatingRoute, !newValue.isOpen,
+                           let stableClosed = closedAnchor.stableCenter,
+                           stableClosed != source || stableClosed != destination {
+                            var transaction = Transaction(animation: nil)
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                source = stableClosed
+                                destination = stableClosed
+                            }
+                        } else if newValue.isOpen, !isAnimatingRoute,
+                                  let tabRect = newValue.tabRect {
+                            let tabCenter = CGPoint(x: tabRect.midX, y: tabRect.midY)
+                            if tabCenter != destination {
+                                var transaction = Transaction(animation: nil)
+                                transaction.disablesAnimations = true
+                                withTransaction(transaction) { destination = tabCenter }
+                            }
+                        } else if !newValue.isOpen && !isAnimatingRoute {
+                            // Closed live activities can resize the dock. Only
+                            // follow them outside an open/close transition.
+                            source = fallback
+                        }
+                        return
+                    }
+                    routeIsOpen = newValue.isOpen
+                    transitionID += 1
+                    let currentTransition = transitionID
+                    isAnimatingRoute = routeMotion != nil
+
+                    // Lock both endpoints for the whole route. In particular,
+                    // closing never adopts the accessory's interpolated bounds.
+                    let stableClosed = closedAnchor.stableCenter ?? fallback
+                    let tabCenter = newValue.tabRect.map { CGPoint(x: $0.midX, y: $0.midY) }
                     var transaction = Transaction(animation: nil)
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
-                        if !placed {
-                            source = center
-                            destination = center
-                            progress = newValue.useTab ? 1 : 0
-                            placed = true
-                        } else if newValue.useTab {
-                            destination = center
-                        } else {
-                            source = center
+                        source = stableClosed
+                        if newValue.isOpen {
+                            destination = tabCenter ?? destination
                         }
                     }
-                    withAnimation(motion) { progress = newValue.useTab ? 1 : 0 }
+
+                    guard placed else { return }
+                    withAnimation(routeMotion, completionCriteria: .logicallyComplete) {
+                        progress = newValue.isOpen ? 1 : 0
+                    } completion: {
+                        guard transitionID == currentTransition,
+                              routeIsOpen == newValue.isOpen else { return }
+                        isAnimatingRoute = false
+                    }
                 }
+                .onChange(of: reduceMotion) { _, _ in finishRouteImmediatelyIfNeeded() }
+                .onChange(of: enableOpeningAnimation) { _, _ in finishRouteImmediatelyIfNeeded() }
+        }
+    }
+
+    private func finishRouteImmediatelyIfNeeded() {
+        guard isAnimatingRoute, reduceMotion || !enableOpeningAnimation else { return }
+        transitionID += 1
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            progress = routeIsOpen ? 1 : 0
+            isAnimatingRoute = false
         }
     }
 }
 
 private struct DotLauncherMeasurement: Equatable {
-    let rect: CGRect?
-    let useTab: Bool
+    let closedRect: CGRect?
+    let tabRect: CGRect?
+    let isOpen: Bool
+}
+
+/// Holds the last fully settled closed endpoint while geometry is animating.
+/// The transient measurement can change each frame without changing the route.
+struct DotLauncherClosedAnchor {
+    private(set) var stableCenter: CGPoint?
+
+    mutating func observe(_ center: CGPoint, isOpen: Bool, routeAnimating: Bool) {
+        if !isOpen && !routeAnimating {
+            stableCenter = center
+        }
+    }
+
+    func resolvedCenter(fallbackOffset: CGPoint, containerWidth: CGFloat) -> CGPoint {
+        stableCenter ?? CGPoint(x: containerWidth / 2 + fallbackOffset.x,
+                                y: fallbackOffset.y)
+    }
+
 }
 
 private struct DotLauncherTravel: GeometryEffect {

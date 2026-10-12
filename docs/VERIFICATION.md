@@ -21,13 +21,13 @@ installed Codex CLI 0.144.6 and Codex Desktop 26.1007.21159.
 | Completion/attention alerts | In-app completion alert observed after appending a synthetic completion record. Waiting/failure, baseline silence, freshness and deduplication tested in the core. macOS notification authorization succeeded in the release UI; actual banner/sound delivery and click routing were not directly observed. Alerts returned to opt-in/off after validation. |
 | Navigation | Synthetic CLI row copied exactly `codex resume <UUID>`; invalid IDs rejected by tests. Installed Desktop has `codex` scheme registration; exact thread routing remains version dependent and is not claimed verified. Only the Codex handler is accepted. |
 | Local access | Existing manual read-only grants were exercised with fixtures, restored on relaunch and removed afterward. Final app uses automatic readers for both detected apps with no saved folder grants. The existing helper remains unsandboxed as upstream; its Agents method verifies the enclosing app executable path, bundle ID and same user, accepts only two fixed provider IDs and caps replies at 256 KiB. No arbitrary paths, commands or raw transcript data cross XPC. No hook installation was left behind. |
-| Builds | Unmodified baseline, modified Debug and universal arm64/x86_64 local Release builds succeed. The Release launches after the documented ad-hoc signing adjustment. Deep/strict code-signature verification passes; App Sandbox stays enabled. |
+| Builds | Unmodified baseline, modified Debug and universal arm64/x86_64 local Release builds succeed. The latest Release uses the stable Apple Development signing identity documented below. Deep/strict code-signature verification passes; App Sandbox stays enabled. |
 | Tests | 110 hosted app tests, 15 standalone core tests and 4 Python hook tests pass (129 total). Includes weekly-window selection, fixed-root automatic readers, metadata-only wire serialization, connection visibility and popup retention state. Synthetic screenshots export to app-owned temporary storage. |
 | GPL/source | Original LICENSE, THIRD_PARTY_LICENSES and copyrights retained; modification notice and dates added; design reference notices retained; local binary is accompanied by a source snapshot, pinned dependency sources and build instructions. No official-upstream endorsement or notarization claim. |
 
 ## Release and interface limits
 
-- Local ad-hoc build; no Developer ID signature, Hardened Runtime or notarization.
+- Local Apple Development-signed build; no Developer ID signature, Hardened Runtime or notarization.
   App Sandbox remains enabled. Proper public-release signing is still needed.
 - The inherited MediaRemoteAdapter is a prebuilt, ad-hoc-signed BSD component;
   its upstream notes explicitly say it is not independently reproducible
@@ -205,3 +205,32 @@ upstream helper/framework boundaries documented above remain.
 - This is a development-signed local build, not notarized. Earlier physical
   trackpad, display, screen-lock and long-term relay limits remain open. The
   earlier automated test suite was not rerun for this view/signing-only change.
+
+## 12 October 2026 — Original notch motion with independent Dot reactions
+
+- Restored the original main-notch black shape, top seam, hover shadow, open/close
+  springs and content scale/fade transition. The original hover handler and its
+  delays remain unchanged. Dot retains its separate lift/tilt and press reaction;
+  entering its closed hit region cancels the main-notch hover timer.
+- Removed the full-surface backing and minimum 32pt accessory height. The black
+  extension uses the closed notch height and remains on the right, with a 20pt
+  overlap covering the seam. No extra black area is added below the notch.
+- One persistent original-avatar button travels between the dock and fourth tab.
+  A settled closed endpoint is captured before expansion and stays fixed during
+  closing, avoiding the intermediate far-right edge. Stale completions after a
+  reversal are ignored. Reduce Motion and the animation preference are honored.
+- Universal Release build and deep/strict signature verification passed. The
+  focused hosted suite passed 21 tests: five route geometry, three closed-anchor,
+  five notch sizing and eight scroll-state tests. Evidence: parent workspace
+  work/dot-hover-restored-build.log and work/dot-hover-restored-tests.log.
+- Live corrected build: direct shortcut opens Dot and focuses the composer;
+  Home and Shelf controls remain available; switching back restores chat;
+  explicit close restores the dock. Encrypted history and relay sign-in survived
+  restart without another Keychain prompt. Open/closed screenshots are in
+  outputs/Dot-motion-open.jpg and outputs/Dot-motion-closed.jpg in the parent
+  workspace. A real reply, “Smooth transition ready”, had already arrived during
+  this animation work; the corrective UI build did not change the relay.
+- Static endpoint inspection does not prove the complete hover/closing animation.
+  Frame-by-frame motion, rapid physical pointer reversals, external displays and
+  hardware trackpad checks remain unverified. The full earlier suite was not
+  rerun for this correction; prior relay latency limits remain unchanged.

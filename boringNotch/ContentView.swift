@@ -101,11 +101,6 @@ struct ContentView: View {
 
     private var dotAccessoryWidth: CGFloat { showsHeader ? 0 : 36 }
 
-    private var surfaceBottomRadius: CGFloat {
-        if vm.notchState == .open { return openedInsets.bottom }
-        return cornerRadiusInsets.closed.bottom * (cornerRadiusScaleFactor ?? 1)
-    }
-
     private var dotFlightClearance: CGFloat {
         let screen = vm.screenUUID.flatMap { NSScreen.screen(withUUID: $0) } ?? NSScreen.main
         // A user can hide the software notch; the hardware cutout is still there.
@@ -295,9 +290,20 @@ struct ContentView: View {
                         vm.notchState == .open ? openedInsets.top : cornerRadiusInsets.closed.bottom
                     )
                     .padding([.horizontal, .bottom], vm.notchState == .open ? 12 : 0)
+                    .background(.black)
                     .clipShape(currentNotchShape)
-                    // The single shell below owns the fill and shadow. Content
-                    // clipping cannot remove or cover the persistent Dot icon.
+                          .overlay(alignment: .top) {
+                              displayClosedNotchHeight.isZero && vm.notchState == .closed ? nil
+                        : Rectangle()
+                            .fill(.black)
+                            .frame(height: 1)
+                            .padding(.horizontal, topCornerRadius)
+                    }
+                    .shadow(
+                        color: ((vm.notchState == .open || isHovering) && Defaults[.enableShadow])
+                            ? .black.opacity(0.7) : .clear, radius: 6
+                    )
+                    // Removed conditional bottom padding when using custom 0 notch to keep layout stable
                     .opacity((isNotchHeightZero && vm.notchState == .closed) ? 0.01 : 1)
 
                 HStack(alignment: .top, spacing: 0) {
@@ -312,6 +318,7 @@ struct ContentView: View {
                     // top-anchored origin. That's what read as "the notch
                     // sits a bit off the top of the screen."
                     .frame(height: vm.notchState == .open ? openNotchHeight : nil, alignment: .top)
+                    .animation(vm.notchState == .open ? StandardAnimations.open : StandardAnimations.close, value: vm.notchState)
                     .animation(.smooth, value: gestureProgress)
                     .animation(.smooth(duration: 0.3), value: closedNotchContent)
                     .contentShape(Rectangle())
@@ -393,17 +400,15 @@ struct ContentView: View {
                     // Geometry only: the actual button remains mounted in
                     // the overlay as it travels between accessory and tab.
                     Color.clear
-                        .frame(width: dotAccessoryWidth, height: max(32, displayClosedNotchHeight))
+                        .frame(width: dotAccessoryWidth, height: displayClosedNotchHeight)
+                        .background(alignment: .trailing) {
+                            UnevenRoundedRectangle(bottomTrailingRadius: 12)
+                                .fill(.black)
+                                .frame(width: 56)
+                                .opacity(showsHeader ? 0 : 1)
+                        }
                         .anchorPreference(key: DotLauncherAnchors.self, value: .bounds) { [.accessory: $0] }
                         .allowsHitTesting(false)
-                }
-                .background {
-                    DotNotchSurface(leadingInset: dotAccessoryWidth,
-                                    topRadius: topCornerRadius,
-                                    bottomRadius: surfaceBottomRadius)
-                        .fill(.black)
-                        .shadow(color: vm.notchState == .open && Defaults[.enableShadow]
-                                ? .black.opacity(0.35) : .clear, radius: 6)
                 }
                 .animation(surfaceAnimation, value: vm.notchState)
                 .animation(surfaceAnimation, value: showsHeader)
@@ -419,6 +424,10 @@ struct ContentView: View {
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
         .overlayPreferenceValue(DotLauncherAnchors.self) { anchors in
             DotLauncherOverlay(anchors: anchors, useTab: showsHeader,
+                               isOpen: vm.notchState == .open,
+                               closedFallbackOffset: CGPoint(
+                                   x: (computedChinWidth - 20) / 2 + cornerRadiusInsets.closed.bottom + 18,
+                                   y: displayClosedNotchHeight / 2),
                                clearanceY: dotFlightClearance,
                                motion: surfaceAnimation,
                                onHover: handleDotHover) {
@@ -648,7 +657,11 @@ struct ContentView: View {
                         }
                     }
                 }
-                .transition(.opacity.animation(reduceMotion ? nil : .easeOut(duration: 0.16)))
+                .transition(
+                    .scale(scale: 0.8, anchor: .top)
+                    .combined(with: .opacity)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.35))
+                )
                 .zIndex(1)
                 .allowsHitTesting(vm.notchState == .open)
                 .opacity(gestureProgress != 0 ? 1.0 - min(abs(gestureProgress) * 0.1, 0.3) : 1.0)
@@ -911,6 +924,7 @@ extension ContentView {
             handleHover(hovering)
         } else if hovering {
             hoverTask?.cancel()
+            withAnimation(animationSpring) { isHovering = false }
         }
     }
 
