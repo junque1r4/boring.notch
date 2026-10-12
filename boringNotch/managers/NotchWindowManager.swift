@@ -153,7 +153,7 @@ final class NotchWindowManager {
         }
 
         window.contentView = NSHostingView(
-            rootView: ContentView()
+            rootView: ContentView(openDot: { [weak self] in self?.presentDot() })
                 .environmentObject(viewModel)
         )
 

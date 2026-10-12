@@ -1,4 +1,4 @@
-// Modified 2026-10-11: Agents scrolling and interaction retention in the GPL-3.0 fork.
+// Modified 2026-10-12: Agents interaction retention and persistent Dot launcher in the GPL-3.0 fork.
 //
 //  ContentView.swift
 //  boringNotchApp
@@ -16,6 +16,7 @@ import SwiftUIIntrospect
 
 @MainActor
 struct ContentView: View {
+    var openDot: () -> Void = {}
     @EnvironmentObject var vm: BoringViewModel
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @ObservedObject var musicManager = MusicManager.shared
@@ -290,6 +291,12 @@ struct ContentView: View {
                     // Removed conditional bottom padding when using custom 0 notch to keep layout stable
                     .opacity((isNotchHeightZero && vm.notchState == .closed) ? 0.01 : 1)
 
+                HStack(alignment: .top, spacing: 0) {
+                    // Balance the shortcut's width without shifting the physical
+                    // notch. Only the right side draws or accepts input.
+                    if vm.notchState == .closed {
+                        Color.clear.frame(width: 36, height: 0).allowsHitTesting(false)
+                    }
                 mainLayout
                     // alignment: .top matters here — without it this frame
                     // defaults to centering, and shrinking the height for a
@@ -386,6 +393,15 @@ struct ContentView: View {
                         //                    }
                         //                    .keyboardShortcut("E", modifiers: .command)
                     }
+                    // A separate hit target outside the main notch's hover and
+                    // gesture handlers: approaching Dot must not open Home first.
+                    if vm.notchState == .closed {
+                        DotClosedNotchLauncher(height: max(28, displayClosedNotchHeight)) {
+                            hoverTask?.cancel()
+                            openDot()
+                        }
+                    }
+                }
                 if vm.chinHeight > 0 {
                     Rectangle()
                         .fill(Color.black.opacity(0.01))
@@ -1121,4 +1137,45 @@ struct GeneralDropTargetDelegate: DropDelegate {
     return ContentView()
         .environmentObject(vm)
         .frame(width: vm.notchSize.width, height: vm.notchSize.height)
+}
+
+/// Persistent closed-notch shortcut. Uses the same observed unread state as the
+/// transcript and fourth tab; no separate polling or message content is exposed.
+private struct DotClosedNotchLauncher: View {
+    let height: CGFloat
+    let open: () -> Void
+    private var store: DotChatStore { .shared }
+
+    var body: some View {
+        Button(action: open) {
+            Image("DotLogo")
+                .renderingMode(.original)
+                .resizable().scaledToFit()
+                .frame(width: 23, height: 23)
+                .frame(width: 36, height: height)
+                .background(alignment: .trailing) {
+                    UnevenRoundedRectangle(bottomTrailingRadius: 12)
+                        // Cover the notch's curved right edge so no wallpaper
+                        // seam appears between it and the shortcut.
+                        .fill(.black).frame(width: 56)
+                }
+                .overlay(alignment: .topTrailing) {
+                    if store.unreadCount > 0 {
+                        Text(store.unreadCount > 9 ? "9+" : "\(store.unreadCount)")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 3)
+                            .frame(minWidth: 12, minHeight: 12)
+                            .background(Color(red: 1, green: 0.8, blue: 57.0 / 255), in: Capsule())
+                            .padding(.top, 2).padding(.trailing, 2)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Open Dot chat")
+        .accessibilityLabel("Open Dot chat")
+        .accessibilityValue(store.unreadCount > 0 ? "\(store.unreadCount) unread replies" : "No unread replies")
+    }
 }

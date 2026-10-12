@@ -72,3 +72,21 @@ See [docs/AGENTS.md](docs/AGENTS.md) for behavior and limitations.
   receipt marks with consistent transcript spacing.
 - Match the supplied native-chat reference with sRGB yellow #FFCC39 for outgoing
   messages, neutral gray #F0F0F0 for replies, and dark readable text.
+
+## 12 October 2026 — Persistent Dot shortcut
+
+- Added a black right-side extension to the closed notch with the original Dot
+  avatar and shared unread reply count (capped visually at 9+).
+- Clicking the shortcut opens the embedded Dot chat directly with composer focus.
+  It has a dedicated hit region outside Home's hover/gesture handling.
+- Keeps the physical notch centered and preserves the open-state tab navigation.
+
+## 12 October 2026 — Stable development signing
+
+- Local builds now select the sole available code-signing certificate, or use an
+  explicitly configured BORING_NOTCH_SIGNING_IDENTITY. Multiple/no identities
+  stop with selection instructions rather than silently reverting to ad-hoc.
+- Certificate signing preserves the app's designated requirement across rebuilds,
+  allowing remembered Keychain access to survive code changes. Existing secrets
+  and Keychain access controls are preserved. The first transition can require
+  the owner to approve both saved items with Always Allow.
