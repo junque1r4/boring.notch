@@ -95,6 +95,7 @@ struct DynamicNotchApp: App {
             }
             .keyboardShortcut(KeyEquivalent(","), modifiers: .command)
             Button("Agents") { AgentsWindowController.shared.show() }
+            Button("Open Dot Chat") { appDelegate.windowManager.presentDot() }
             Link("Fork source and updates", destination: URL(string: "https://github.com/junque1r4/boring.notch/tree/agents/phase-1")!)
             Button("Restart Boring Notch") {
                 ApplicationRelauncher.restart()
@@ -106,6 +107,8 @@ struct DynamicNotchApp: App {
         }
         .commands {
             CommandMenu("Agents") {
+                Button("Open Dot Chat") { appDelegate.windowManager.presentDot() }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
                 Button("Open Agent Center") { AgentsWindowController.shared.show() }
                     .keyboardShortcut("a", modifiers: [.command, .shift])
             }

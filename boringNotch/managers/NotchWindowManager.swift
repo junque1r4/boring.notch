@@ -413,6 +413,20 @@ final class NotchWindowManager {
         }
     }
 
+    /// Keyboard/menu entry to the same embedded chat used by the fourth tab.
+    func presentDot() {
+        guard !isScreenLocked else { return }
+        let screenID = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }?.displayUUID
+        let context = screenID.flatMap { contexts[$0] }
+        let model = context?.viewModel ?? primaryViewModel
+        let targetWindow = context?.window ?? primaryWindow
+        guard let targetWindow else { return }
+        BoringViewCoordinator.shared.currentView = .dot
+        model.isDotInputActive = true
+        _ = model.open()
+        targetWindow.orderFrontRegardless()
+    }
+
     func cleanup() {
         cleanupDragDetectors()
         cleanupWindows()
