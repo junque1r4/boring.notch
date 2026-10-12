@@ -245,7 +245,7 @@ private struct DotBottomPreference: PreferenceKey {
 
 /// Owns focus and outside-click dismissal for one notch window.
 @MainActor final class DotChatInputFocus {
-    private weak var previousApplication: NSRunningApplication?
+    private var previousApplication: NSRunningApplication?
     private weak var ownerWindow: NSWindow?
     private weak var viewModel: BoringViewModel?
     private var localMonitor: Any?
@@ -260,25 +260,39 @@ private struct DotBottomPreference: PreferenceKey {
     }
 
     func attach(to window: NSWindow?) {
-        guard let window, ownerWindow !== window else { return }
-        ownerWindow = window
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self else { return event }
-            if event.window !== self.ownerWindow { self.dismissFromOutsideClick() }
-            return event
+        guard let window else { return }
+        if ownerWindow !== window {
+            if let localMonitor { NSEvent.removeMonitor(localMonitor) }
+            if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
+            ownerWindow = window
+            localMonitor = nil
+            globalMonitor = nil
         }
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, let window = self.ownerWindow,
-                      !window.frame.contains(NSEvent.mouseLocation) else { return }
-                self.dismissFromOutsideClick()
+        if localMonitor == nil {
+            localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+                guard let self else { return event }
+                guard let window = self.ownerWindow else { return event }
+                let point = event.window === window
+                    ? window.convertPoint(toScreen: event.locationInWindow)
+                    : NSEvent.mouseLocation
+                if !self.containsNotchContent(point, in: window) { self.dismissFromOutsideClick() }
+                return event
+            }
+        }
+        if globalMonitor == nil {
+            globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, let window = self.ownerWindow,
+                          !self.containsNotchContent(NSEvent.mouseLocation, in: window) else { return }
+                    self.dismissFromOutsideClick()
+                }
             }
         }
     }
 
     func attachComposer(to window: NSWindow, userInitiated: Bool) -> Bool {
         guard let notchWindow = window as? BoringNotchSkyLightWindow else { return false }
-        ownerWindow = notchWindow
+        attach(to: notchWindow)
         guard userInitiated || shouldFocusComposerOnAppear else { return false }
         notchWindow.wantsKeyForTextInput = true
         return true
@@ -305,6 +319,18 @@ private struct DotBottomPreference: PreferenceKey {
         guard let viewModel else { return }
         dismiss(restoreForegroundApplication: false)
         viewModel.close(forced: true)
+    }
+
+    private func containsNotchContent(_ point: NSPoint, in window: NSWindow) -> Bool {
+        guard let viewModel else { return false }
+        let size = viewModel.notchSize
+        let rect = NSRect(
+            x: window.frame.midX - size.width / 2,
+            y: window.frame.maxY - size.height,
+            width: size.width,
+            height: size.height
+        )
+        return rect.contains(point)
     }
 }
 
