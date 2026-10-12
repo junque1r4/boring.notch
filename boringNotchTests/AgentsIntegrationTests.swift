@@ -62,7 +62,7 @@ import SwiftUI
         }
         let apps = [DetectedAgentApp(id: "codex", name: "Codex", url: nil, isRunning: true, cliInstalled: true),
             DetectedAgentApp(id: "grok-bot", name: "Grok Bot", url: nil, isRunning: true, cliInstalled: false)]
-        let view = AgentsDashboard(sessions: sessions, usage: windows, apps: apps, connected: ["logs", "grok"],
+        let view = AgentsDashboard(sessions: sessions, usage: windows, activity: AgentActivityHistory(), apps: apps, connected: ["logs", "grok"],
             alert: nil, now: now, navigate: { _ in }, connect: { _ in }, openApp: { _ in }, settings: {}, dismissAlert: {})
             .padding(16).frame(width: 540, height: 430).background(.black)
         let host = NSHostingView(rootView: view)
@@ -79,7 +79,7 @@ import SwiftUI
         }
     }
 
-    func testCompactNotchStillPaintsWorkingSessionBelowUsageCards() throws {
+    func testAgentsNotchShowsWorkingSessionBelowUsageAndActivity() throws {
         let now = Date()
         let session = AgentSession(id: "11111111-2222-3333-4444-555555555555", providerID: "codex",
             project: "Working project", surface: .cli, state: .working, evidence: .localLog, updatedAt: now, turnID: "t")
@@ -89,22 +89,25 @@ import SwiftUI
                 resetsAt: now.addingTimeInterval(86400), observedAt: now, expiresAt: nil, source: "Local log"),
             AgentUsageWindow(id: "grok-bot.weekly", providerID: "grok-bot", label: "Weekly", usedPercent: 62,
             resetsAt: now.addingTimeInterval(86400), observedAt: now, expiresAt: nil, source: "Desktop cache")]
-        let view = AgentsDashboard(sessions: [session], usage: windows, apps: [], connected: ["logs", "grok"],
+        let view = AgentsDashboard(sessions: [session], usage: windows, activity: AgentActivityHistory(), apps: [], connected: ["logs", "grok"],
             alert: nil, now: now, navigate: { _ in }, connect: { _ in }, openApp: { _ in }, settings: {}, dismissAlert: {})
-            .frame(width: 580, height: 135).background(.black)
+            .frame(width: 640, height: 270).background(.black)
         let host = NSHostingView(rootView: view)
-        host.frame = NSRect(x: 0, y: 0, width: 580, height: 135)
+        host.frame = NSRect(x: 0, y: 0, width: 640, height: 270)
         host.layoutSubtreeIfNeeded()
         let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         var cyan = 0
-        for y in 0..<bitmap.pixelsHigh {
+        // Scan only the lower half where the session list lays out. The usage
+        // bars and activity heatmap also use cyan, so scanning the whole card
+        // could pass without ever rendering the Working session row.
+        for y in 0..<(bitmap.pixelsHigh / 2) {
             for x in 0..<bitmap.pixelsWide {
                 if let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
                    color.redComponent < 0.4, color.greenComponent > 0.55, color.blueComponent > 0.75 { cyan += 1 }
             }
         }
-        XCTAssertGreaterThan(cyan, 10, "The Working row must remain visible alongside quotas at the real notch height")
+        XCTAssertGreaterThan(cyan, 10, "The Working row must remain visible below usage and activity at the real notch content height")
         if ProcessInfo.processInfo.environment["AGENTS_TEST_RENDER_DIR"] != nil {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("AgentMonitorValidation")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -114,7 +117,7 @@ import SwiftUI
 
     func testQuotaConnectionOnlyAppearsForUndetectedUnconnectedApp() {
         func card(_ app: DetectedAgentApp?, connected: Bool = false) -> AgentQuotaCard {
-            AgentQuotaCard(title: "ChatGPT", caption: "Codex allowance", glyph: "C", windows: [], app: app,
+            AgentQuotaCard(providerID: "codex", title: "ChatGPT", caption: "Codex allowance", glyph: "C", windows: [], app: app,
                 connected: connected, now: Date(), connect: {}, openApp: {})
         }
         XCTAssertTrue(card(nil).offersManualConnection)

@@ -87,12 +87,11 @@ struct AgentsDashboard: View {
     }
 
     private func dashboard(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: compact ? 4 : 7) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text("Agents Status").font(.system(size: compact ? 11 : 13, weight: .semibold))
-                if !compact { Text("ON THIS MAC").font(.system(size: 8, weight: .medium, design: .monospaced)).foregroundStyle(.secondary) }
+                Text("Agents Status").font(.system(size: 13, weight: .semibold))
+                if !compact { Text("ON THIS MAC").font(.system(size: 9, weight: .medium, design: .monospaced)).foregroundStyle(.secondary) }
                 Spacer()
-                if compact { filters(compact: true) }
                 Button(action: settings) { Image(systemName: "slider.horizontal.3") }
                     .help("Agent monitoring settings").accessibilityLabel("Agent monitoring settings")
             }
@@ -110,24 +109,28 @@ struct AgentsDashboard: View {
                     Button(action: dismissAlert) { Image(systemName: "xmark") }.accessibilityLabel("Dismiss agent alert")
                 }.padding(compact ? 3 : 6).background(alert.state.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
             }
-            if !compact { HStack { filters(compact: false); Spacer() } }
-            if sessions.filter(filter.includes).isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(sessions.isEmpty ? connected.contains("logs") ? "No recent local sessions" : "No local sessions detected" : "No sessions in this view").font(.system(size: 10, weight: .medium))
-                    if !compact { Text("Grok Bot is detected separately; its cloud task states are unavailable locally.")
-                        .font(.system(size: 9)).foregroundStyle(.secondary) }
-                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 3) {
-                        ForEach(sessions.filter(filter.includes)) { session in
-                            AgentSessionRow(session: session, now: now, navigate: navigate, compact: compact)
+            ScrollView {
+                VStack(alignment: .leading, spacing: compact ? 4 : 6) {
+                    HStack { filters(compact: compact); Spacer() }
+                    if sessions.filter(filter.includes).isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(sessions.isEmpty ? connected.contains("logs") ? "No recent local sessions" : "No local sessions detected" : "No sessions in this view")
+                                .font(.system(size: 11, weight: .medium))
+                            if !compact { Text("Grok Bot is detected separately; its cloud task states are unavailable locally.")
+                                .font(.system(size: 9)).foregroundStyle(.secondary) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        LazyVStack(spacing: 3) {
+                            ForEach(sessions.filter(filter.includes)) { session in
+                                AgentSessionRow(session: session, now: now, navigate: navigate, compact: compact)
+                            }
                         }
                     }
-                }.frame(maxHeight: .infinity)
-            }
-            Text(compact ? "Local status · Approvals in the agent app" : "Status from local session records · Approvals stay in the agent app")
-                .font(.system(size: compact ? 7 : 8)).foregroundStyle(.secondary)
+                }
+            }.frame(maxHeight: .infinity)
+            Text("Local session records · Approvals stay in the agent app")
+                .font(.system(size: 9)).foregroundStyle(.secondary)
         }
         .buttonStyle(.plain).padding(.horizontal, 10).padding(.bottom, compact ? 3 : 8).foregroundStyle(.white)
     }
@@ -137,8 +140,8 @@ struct AgentsDashboard: View {
             ForEach(AgentSessionFilter.allCases) { choice in
                 Button { filter = choice } label: {
                     Text("\(choice.rawValue) \(sessions.filter(choice.includes).count)")
-                        .font(.system(size: compact ? 8 : 9, weight: .medium))
-                        .padding(.horizontal, compact ? 5 : 7).padding(.vertical, compact ? 3 : 4)
+                        .font(.system(size: compact ? 9 : 10, weight: .medium))
+                        .padding(.horizontal, compact ? 6 : 8).padding(.vertical, compact ? 3 : 4)
                         .background(.white.opacity(filter == choice ? 0.14 : 0.04), in: Capsule())
                 }.accessibilityAddTraits(filter == choice ? .isSelected : [])
             }
@@ -181,15 +184,15 @@ struct AgentQuotaCard: View {
 
     var body: some View {
         Button { popoverChanged(true); showDetails = true } label: {
-            VStack(alignment: .leading, spacing: compact ? 3 : 5) {
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 5) {
-                    Text(title).font(.system(size: 10, weight: .semibold)).lineLimit(1)
+                    Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                     Spacer(minLength: 0)
                     Text(percentLabel.map { "USED \($0)" } ?? "USAGE —")
-                        .font(.system(size: compact ? 10 : 11, weight: .bold, design: .rounded).monospacedDigit())
+                        .font(.system(size: compact ? 18 : 20, weight: .bold, design: .rounded).monospacedDigit())
                         .foregroundStyle(currentUsedPercent == nil ? .secondary : usageColor)
                 }
-                Text(caption).font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+                Text(caption).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         if let currentUsedPercent {
@@ -207,9 +210,9 @@ struct AgentQuotaCard: View {
                     if headline?.isStale(at: now) == true || resetPassed {
                         Image(systemName: "clock.arrow.circlepath").foregroundStyle(.orange)
                     }
-                }.font(.system(size: 7, weight: .medium, design: .monospaced))
+                }.font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundStyle(headline?.isStale(at: now) == true || resetPassed ? .orange : .secondary)
-            }.padding(.horizontal, compact ? 7 : 9).padding(.vertical, compact ? 5 : 7)
+            }.padding(.horizontal, compact ? 7 : 9).padding(.vertical, 5)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
         }
@@ -255,25 +258,20 @@ struct AgentActivityCalendar: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("SESSION ACTIVITY").font(.system(size: 8, weight: .semibold, design: .monospaced)).foregroundStyle(.secondary)
-                Text(history.isTracking ? "\(history.activeDayCount) recorded days" : "Waiting for local records")
-                    .font(.system(size: 10, weight: .semibold)).monospacedDigit().lineLimit(1)
-                if let startedAt = history.trackingStartedAt {
-                    Text("Recording since \(startedAt, format: .dateTime.month(.abbreviated).day())")
-                        .font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
-                } else {
-                    Text("Codex session timestamps")
-                        .font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Text("No record = unknown")
-                    .font(.system(size: 7)).foregroundStyle(.secondary).lineLimit(1)
-            }.frame(minWidth: 112, alignment: .leading)
+                Text("Session activity").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                Text(history.isTracking ? "\(history.activeDayCount) days with records" : "Waiting for local records")
+                    .font(.system(size: 11, weight: .semibold)).monospacedDigit().lineLimit(1)
+                Text(history.trackingStartedAt.map {
+                    "Recording since \($0.formatted(.dateTime.month(.abbreviated).day())) · blank = unknown"
+                } ?? "Codex session timestamps · blank = unknown")
+                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+            }.frame(minWidth: 126, alignment: .leading)
             Spacer(minLength: 0)
-            HStack(alignment: .top, spacing: 3) {
+            HStack(alignment: .top, spacing: 2) {
                 if let currentWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start,
                    let firstWeek = calendar.date(byAdding: .weekOfYear, value: -11, to: currentWeek) {
                     ForEach(0..<12, id: \.self) { week in
-                        VStack(spacing: 3) {
+                        VStack(spacing: 2) {
                             ForEach(0..<7, id: \.self) { weekday in
                                 if let date = calendar.date(byAdding: .day, value: week * 7 + weekday, to: firstWeek) {
                                     activityCell(for: date)
@@ -284,7 +282,7 @@ struct AgentActivityCalendar: View {
                 }
             }.accessibilityElement(children: .contain).accessibilityLabel("12-week local session activity calendar")
         }
-        .padding(.horizontal, 8).padding(.vertical, 6)
+        .padding(.horizontal, 8).padding(.vertical, 5)
         .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
     }
 
@@ -294,7 +292,7 @@ struct AgentActivityCalendar: View {
         let tint: Color = count == 0 ? .white.opacity(0.035) : .cyan.opacity(count == 1 ? 0.42 : count < 4 ? 0.68 : 1)
         return RoundedRectangle(cornerRadius: 1.5)
             .fill(isFuture ? .clear : tint)
-            .frame(width: 7, height: 7)
+            .frame(width: 6, height: 6)
             .overlay(RoundedRectangle(cornerRadius: 1.5).stroke(.white.opacity(isFuture ? 0.035 : 0.025), lineWidth: 0.5))
             .help(dayDescription(date, count: count, isFuture: isFuture))
             .accessibilityLabel(dayDescription(date, count: count, isFuture: isFuture))
@@ -321,21 +319,21 @@ struct AgentSessionRow: View {
                 RoundedRectangle(cornerRadius: 2).fill(session.state.color).frame(width: 3)
                 Image(systemName: session.state.symbol).foregroundStyle(session.state.color).frame(width: 16)
                 VStack(alignment: .leading, spacing: compact ? 1 : 3) {
-                    Text(session.project).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                    Text(session.project).font(.system(size: 12, weight: .medium)).lineLimit(1)
                     HStack(spacing: 3) {
                         Text(session.surface == .desktop ? "Codex Desktop" : session.surface == .cli ? "Codex CLI" : "Codex")
                         Text("· \(session.evidence == .hook ? "Hook" : "Local log")")
                         if session.isStale(at: now) { Text("· Stale").foregroundStyle(.orange) }
-                    }.font(.system(size: 8)).foregroundStyle(.secondary).lineLimit(1)
+                    }.font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 4)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(session.state.displayName).font(.system(size: 9, weight: .semibold)).foregroundStyle(session.state.color)
-                    Text(session.updatedAt, style: .relative).font(.system(size: 8)).foregroundStyle(.secondary)
+                    Text(session.state.displayName).font(.system(size: 10, weight: .semibold)).foregroundStyle(session.state.color)
+                    Text(session.updatedAt, style: .relative).font(.system(size: 9)).foregroundStyle(.secondary)
                 }
                 Image(systemName: session.surface == .desktop ? "arrow.up.right" : "doc.on.doc")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
-            }.padding(.horizontal, 7).padding(.vertical, compact ? 3 : 7).frame(height: compact ? 32 : 42)
+            }.padding(.horizontal, 7).padding(.vertical, compact ? 4 : 7).frame(height: compact ? 36 : 44)
                 .background(.white.opacity(hovered ? 0.11 : 0.045), in: RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(.plain).disabled(!session.isNavigable).onHover { hovered = $0 }
             .help(session.surface == .desktop ? "Open session in Codex (version dependent)" : "Copy CLI resume command")
